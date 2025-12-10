@@ -311,7 +311,15 @@ async def process_message(request: TextMessage):
                 # First, get available events to search through
                 events_resp = await client.get(f"{base_url}/api/events/list?limit=20")
                 if events_resp.status_code == 200:
-                    events = events_resp.json().get("events", [])
+                    events_raw = events_resp.json().get("events", [])
+                    # Filter out any events with invalid IDs (safety check)
+                    uuid_pattern_filter = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+                    events = []
+                    for event in events_raw:
+                        event_id_check = event.get("id")
+                        if event_id_check and uuid_pattern_filter.match(str(event_id_check)) and len(str(event_id_check)) == 36:
+                            events.append(event)
+                        # Skip events with invalid IDs (shouldn't happen, but safety first)
                     
                     # Try to find event by ID from intent_data (validate it's a UUID)
                     potential_id = intent_data.get("event_id")
@@ -434,30 +442,37 @@ async def process_message(request: TextMessage):
                                 message = f"I couldn't find a valid event matching '{event_name}'. Please try again with the exact event name."
                                 action_result = {"error": "Could not find valid event"}
                         
-                        # Only proceed if we have a valid UUID
-                        if event_id and uuid_pattern.match(str(event_id)):
-                            # Found event with valid UUID, register user
-                            register_resp = await client.post(
-                                f"{base_url}/api/events/register",
-                                json={
-                                    "event_id": event_id,
-                                    "user_id": request.user_id
-                                }
-                            )
-                            if register_resp.status_code == 200:
-                                action_result = register_resp.json()
-                                # Get event title for confirmation message
-                                event_title = "the event"
-                                for event in events:
-                                    if event.get("id") == event_id:
-                                        event_title = event.get("title", "the event")
-                                        break
-                                message = f"Successfully registered you for '{event_title}'! Registration confirmed."
-                                action_executed = True
+                        # Only proceed if we have a valid UUID - final safety check
+                        if event_id:
+                            event_id_str = str(event_id).strip()
+                            # CRITICAL: Reject any non-UUID value including numbers like "1"
+                            if not uuid_pattern.match(event_id_str) or len(event_id_str) != 36:
+                                # This should never happen, but if it does, fail safely
+                                message = f"System error: Invalid event ID detected ({event_id_str}). Please try saying the event name again, for example: 'I want to join the pickleball event'"
+                                action_result = {"error": f"Invalid event_id: {event_id_str} (expected UUID format)"}
                             else:
-                                error_detail = register_resp.json().get("detail", register_resp.text) if register_resp.headers.get("content-type", "").startswith("application/json") else register_resp.text
-                                message = f"Could not register for event. {error_detail}"
-                                action_result = {"error": error_detail}
+                                # Found event with valid UUID, register user
+                                register_resp = await client.post(
+                                    f"{base_url}/api/events/register",
+                                    json={
+                                        "event_id": event_id_str,
+                                        "user_id": request.user_id
+                                    }
+                                )
+                                if register_resp.status_code == 200:
+                                    action_result = register_resp.json()
+                                    # Get event title for confirmation message
+                                    event_title = "the event"
+                                    for event in events:
+                                        if str(event.get("id")) == event_id_str:
+                                            event_title = event.get("title", "the event")
+                                            break
+                                    message = f"Successfully registered you for '{event_title}'! Registration confirmed."
+                                    action_executed = True
+                                else:
+                                    error_detail = register_resp.json().get("detail", register_resp.text) if register_resp.headers.get("content-type", "").startswith("application/json") else register_resp.text
+                                    message = f"Could not register for event. {error_detail}"
+                                    action_result = {"error": error_detail}
                 else:
                     message = "Could not retrieve events list. Please try again later."
             
