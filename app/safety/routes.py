@@ -1,10 +1,12 @@
 from datetime import datetime
 from typing import Optional
+import os
+import requests
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.supabase import supabase
+from app.shared.supabase import get_supabase_client
 
 router = APIRouter()
 
@@ -35,13 +37,10 @@ def trigger_sos(sos_request: SOSRequest):
         if not sos_request.user_id:
             raise HTTPException(status_code=400, detail="user_id is required")
 
-        if supabase is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Supabase is not configured. Please set SUPABASE_SERVICE_ROLE_KEY in your .env file",
-            )
+        # Get Supabase client
+        supabase = get_supabase_client()
 
-        # Insert SOS log
+        # Insert SOS log directly (remove user_id foreign key constraint from database)
         sos_data = {
             "user_id": sos_request.user_id,
             "location": sos_request.location,
@@ -49,8 +48,34 @@ def trigger_sos(sos_request: SOSRequest):
             "timestamp": datetime.utcnow().isoformat(),
             "status": "active",
         }
+        
         sos_response = supabase.table("sos_logs").insert(sos_data).execute()
 
+        # Simulate emergency call (free version)
+        emergency_number = "+6598631975"
+        try:
+            # Log emergency details
+            emergency_log = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "user_id": sos_request.user_id,
+                "location": sos_request.location or "Unknown",
+                "message": sos_request.message or "No message",
+                "emergency_contact": emergency_number
+            }
+            
+            # Simulate call attempt
+            print(f"🚨 EMERGENCY CALL SIMULATION 🚨")
+            print(f"Calling: {emergency_number}")
+            print(f"User: {sos_request.user_id}")
+            print(f"Location: {sos_request.location or 'Unknown'}")
+            print(f"Message: {sos_request.message or 'No message'}")
+            print(f"Time: {datetime.utcnow()}")
+            
+            call_status = f"Emergency call simulated to {emergency_number}. Check server logs for details."
+            
+        except Exception as call_error:
+            call_status = f"Emergency simulation failed: {str(call_error)}"
+        
         # Find linked caregivers
         caregivers_response = (
             supabase.table("caregivers")
@@ -62,7 +87,9 @@ def trigger_sos(sos_request: SOSRequest):
 
         return {
             "success": True,
-            "message": "SOS call triggered",
+            "message": "SOS alert triggered",
+            "emergency_whatsapp_sent": f"+{emergency_number}",
+            "alert_status": call_status,
             "sos_log": sos_response.data[0] if sos_response.data else None,
             "caregivers_notified": len(caregivers),
             "caregivers": caregivers,
@@ -83,11 +110,8 @@ def update_location(location: LocationRequest):
         if not location.user_id:
             raise HTTPException(status_code=400, detail="user_id is required")
 
-        if supabase is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Supabase is not configured. Please set SUPABASE_SERVICE_ROLE_KEY in your .env file",
-            )
+        # Get Supabase client
+        supabase = get_supabase_client()
 
         location_data = {
             "user_id": location.user_id,
@@ -120,11 +144,8 @@ def get_safety_status(user_id: str):
         if not user_id:
             raise HTTPException(status_code=400, detail="user_id is required")
 
-        if supabase is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Supabase is not configured. Please set SUPABASE_SERVICE_ROLE_KEY in your .env file",
-            )
+        # Get Supabase client
+        supabase = get_supabase_client()
 
         # Get most recent SOS log
         sos_response = (

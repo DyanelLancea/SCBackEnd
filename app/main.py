@@ -14,7 +14,7 @@ from app.shared.supabase import get_supabase_client, test_connection
 # Import all module routers
 from app.wellness.routes import router as wellness_router
 from app.safety.routes import router as safety_router
-from app.ochestrator.routes import router as orchestrator_router
+from app.orchestrator.routes import router as orchestrator_router
 from app.events.routes import router as events_router
 
 
@@ -142,24 +142,32 @@ app.include_router(
 
 # ==================== ERROR HANDLERS ====================
 
+from fastapi.responses import JSONResponse
+
 @app.exception_handler(404)
 async def not_found_handler(request, exc):
     """Handle 404 errors"""
-    return {
-        "error": "Endpoint not found",
-        "message": "The requested endpoint does not exist",
-        "docs": "/docs",
-        "available_modules": ["/api/events", "/api/wellness", "/api/safety", "/api/orchestrator"]
-    }
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "Endpoint not found",
+            "message": "The requested endpoint does not exist",
+            "docs": "/docs",
+            "available_modules": ["/api/events", "/api/wellness", "/api/safety", "/api/orchestrator"]
+        }
+    )
 
 
 @app.exception_handler(500)
 async def internal_error_handler(request, exc):
     """Handle 500 errors"""
-    return {
-        "error": "Internal server error",
-        "message": "Something went wrong. Please try again later or contact support."
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "message": "Something went wrong. Please try again later or contact support."
+        }
+    )
 
 
 # ==================== RUN APPLICATION ====================
