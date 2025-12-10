@@ -12,16 +12,32 @@ import httpx
 import json
 import os
 import tempfile
+<<<<<<< HEAD
 from openai import OpenAI
+=======
+import json
+>>>>>>> bf78d3f2e951155425b70231ea2a78a1b398fc81
 from app.shared.supabase import get_supabase_client
 
 
 router = APIRouter()
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 # Initialize OpenAI client lazily (only when needed)
+=======
+# Lazy import OpenAI (only when needed)
+>>>>>>> bf78d3f2e951155425b70231ea2a78a1b398fc81
 def get_openai_client():
     """Get OpenAI client, initializing if needed"""
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="OpenAI package is not installed. Please install it with: pip install openai"
+        )
+    
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise HTTPException(
@@ -229,6 +245,16 @@ def get_history(user_id: str, limit: int = 20):
 
 
 # ==================== SINGLISH PROCESSING ====================
+
+@router.get("/test-route")
+def test_route():
+    """Simple test endpoint to verify route registration"""
+    return {
+        "success": True,
+        "message": "Orchestrator routes are working!",
+        "endpoint": "/api/orchestrator/test-route"
+    }
+
 
 @router.post("/process-singlish")
 async def process_singlish(request: SinglishProcessRequest):
