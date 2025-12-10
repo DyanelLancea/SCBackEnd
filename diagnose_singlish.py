@@ -1,6 +1,7 @@
 """
 Diagnostic script to check Singlish endpoint setup
-Run this to identify what's wrong with your setup
+Uses Render server by default: https://scbackend-qfh6.onrender.com
+To use localhost instead, set: export API_BASE_URL=http://localhost:8000
 """
 import os
 import sys
@@ -68,7 +69,8 @@ def check_server_running():
     """Check if server is running"""
     print_section("3. Checking Server Status")
     
-    base_url = "http://localhost:8000"
+    # Use Render server by default, can override with API_BASE_URL env var
+    base_url = os.getenv("API_BASE_URL", "https://scbackend-qfh6.onrender.com")
     
     try:
         response = requests.get(f"{base_url}/", timeout=5)
@@ -91,7 +93,8 @@ def check_endpoint_exists():
     """Check if the endpoint exists"""
     print_section("4. Checking Endpoint Exists")
     
-    base_url = "http://localhost:8000"
+    # Use Render server by default, can override with API_BASE_URL env var
+    base_url = os.getenv("API_BASE_URL", "https://scbackend-qfh6.onrender.com")
     endpoint = f"{base_url}/api/orchestrator/process-singlish"
     
     try:
@@ -120,7 +123,8 @@ def test_endpoint():
     """Test the endpoint with a simple request"""
     print_section("5. Testing Endpoint")
     
-    base_url = "http://localhost:8000"
+    # Use Render server by default, can override with API_BASE_URL env var
+    base_url = os.getenv("API_BASE_URL", "https://scbackend-qfh6.onrender.com")
     endpoint = f"{base_url}/api/orchestrator/process-singlish"
     
     test_data = {
@@ -199,6 +203,11 @@ def main():
     print("  🔍 SINGLISH ENDPOINT DIAGNOSTIC TOOL")
     print("="*70)
     print("\nThis tool will check your setup and identify issues.")
+    
+    # Show which server we're using
+    base_url = os.getenv("API_BASE_URL", "https://scbackend-qfh6.onrender.com")
+    print(f"\n📍 Testing against: {base_url}")
+    print("💡 To use localhost instead, set: export API_BASE_URL=http://localhost:8000")
     
     results = []
     

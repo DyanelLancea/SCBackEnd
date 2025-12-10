@@ -2,10 +2,12 @@
 Test script for Singlish Processing Endpoint
 Tests the /api/orchestrator/process-singlish endpoint
 
+Uses Render server by default: https://scbackend-qfh6.onrender.com
+To use localhost instead, set: export API_BASE_URL=http://localhost:8000
+
 Run this after:
 1. Installing dependencies: pip install -r requirements.txt
-2. Setting OPENAI_API_KEY in your environment
-3. Starting the server: uvicorn app.main:app --reload
+2. Setting OPENAI_API_KEY in your environment (for Render server)
 """
 import requests
 import json
@@ -15,7 +17,10 @@ import sys
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
 
-BASE_URL = "http://localhost:8000/api"
+# Use Render server by default, fallback to localhost
+import os
+BASE_URL = os.getenv("API_BASE_URL", "https://scbackend-qfh6.onrender.com/api")
+LOCAL_URL = "http://localhost:8000/api"
 
 
 def print_response(title, response):
@@ -305,10 +310,11 @@ def main():
     print("🤖 SINGLISH PROCESSING TEST SUITE")
     print("="*70)
     print(f"Testing endpoint: {BASE_URL}/orchestrator/process-singlish")
+    print(f"\n📍 Using server: {BASE_URL.replace('/api', '')}")
     print("\n⚠️  Prerequisites:")
-    print("   1. Server running: uvicorn app.main:app --reload")
-    print("   2. OPENAI_API_KEY set in environment")
-    print("   3. OpenAI package installed: pip install openai")
+    print("   1. OPENAI_API_KEY set in environment (for Render server)")
+    print("   2. OpenAI package installed: pip install openai")
+    print("\n💡 To use localhost instead, set: export API_BASE_URL=http://localhost:8000")
     
     try:
         # Check if server is accessible

@@ -16,6 +16,43 @@ import tempfile
 from app.shared.supabase import get_supabase_client
 
 
+def get_api_base_url() -> str:
+    """
+    Get the API base URL for internal service calls.
+    Tries to auto-detect from environment or use sensible defaults.
+    """
+    # First, check if explicitly set
+    api_url = os.getenv("API_BASE_URL")
+    if api_url:
+        return api_url.rstrip('/')
+    
+    # Try to detect from RENDER environment (Render.com)
+    render_service_url = os.getenv("RENDER_SERVICE_URL")
+    if render_service_url:
+        return render_service_url.rstrip('/')
+    
+    # Try to detect from other common environment variables
+    # For Vercel/other platforms that might set this
+    vercel_url = os.getenv("VERCEL_URL")
+    if vercel_url:
+        return f"https://{vercel_url}".rstrip('/')
+    
+    # Check if we're in production (common indicators)
+    is_production = os.getenv("ENVIRONMENT") == "production" or os.getenv("PRODUCTION") == "true"
+    
+    # Default fallback - use localhost for development
+    # In production, this should be set via API_BASE_URL
+    if is_production:
+        # In production without API_BASE_URL set, we can't make internal calls
+        # This will cause an error, but at least it's clear
+        raise ValueError(
+            "API_BASE_URL environment variable must be set in production. "
+            "Set it to your backend's public URL (e.g., https://your-backend.onrender.com)"
+        )
+    
+    return "http://localhost:8000"
+
+
 router = APIRouter()
 
 # Initialize OpenAI client lazily (only when needed)
@@ -127,16 +164,22 @@ async def detect_intent_and_extract_info(user_message: str, user_id: str) -> Dic
         client = get_openai_client()
         
         # Get available events to help GPT understand context
-        base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
         available_events = []
         try:
+            base_url = get_api_base_url()
             async with httpx.AsyncClient(timeout=10.0) as http_client:
                 events_response = await http_client.get(f"{base_url}/api/events/list?limit=10")
                 if events_response.status_code == 200:
                     events_data = events_response.json()
                     available_events = events_data.get("events", [])
-        except:
+        except (httpx.ConnectError, httpx.ConnectTimeout, ValueError) as e:
+            # Connection failed - log but continue without events context
+            print(f"Warning: Could not fetch events for context: {str(e)}")
             pass  # Continue without events if fetch fails
+        except Exception as e:
+            # Other errors - also continue
+            print(f"Warning: Error fetching events: {str(e)}")
+            pass
         
         events_context = ""
         if available_events:
@@ -255,10 +298,22 @@ async def process_message(request: TextMessage):
     Routes to appropriate module based on intent
     Automatically executes actions like SOS calls, event booking, etc.
     """
-    base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
     action_executed = False
     action_result = None
     sos_triggered = False
+    
+    # Get API base URL for internal calls
+    try:
+        base_url = get_api_base_url()
+    except ValueError as e:
+        # API_BASE_URL not set in production
+        return {
+            "success": False,
+            "intent": "general",
+            "message": f"Configuration error: {str(e)}. Please set API_BASE_URL environment variable.",
+            "user_id": request.user_id,
+            "error": str(e)
+        }
     
     # Use GPT to detect intent and extract information
     try:
@@ -618,6 +673,10 @@ async def process_message(request: TextMessage):
                 # General intent - provide helpful message
                 message = "I can help you with:\n• Booking events (say 'book event' or 'register for event')\n• Viewing events (say 'show events' or 'list events')\n• Emergency help (say 'help' or 'emergency')\n• And more! What would you like to do?"
     
+    except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+        # Connection error - API_BASE_URL likely not set correctly
+        message = f"Connection error: Could not reach backend API. Please ensure API_BASE_URL is set to your backend's public URL (e.g., https://your-backend.onrender.com). Error: {str(e)}"
+        action_result = {"error": str(e), "error_type": "connection_failed"}
     except Exception as e:
         message = f"Error processing your request: {str(e)}"
         action_result = {"error": str(e)}
