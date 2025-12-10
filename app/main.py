@@ -14,7 +14,7 @@ from app.shared.supabase import get_supabase_client, test_connection
 # Import all module routers
 from app.wellness.routes import router as wellness_router
 from app.safety.routes import router as safety_router
-from app.ochestrator.routes import router as orchestrator_router
+from app.orchestrator.routes import router as orchestrator_router
 from app.events.routes import router as events_router
 
 
