@@ -1,5 +1,30 @@
-fastapi
-uvicorn
-python-dotenv
-supabase
+# SC Backend Dependencies
+
+# FastAPI - Web framework
+fastapi==0.115.0
+
+# Uvicorn - ASGI server
+uvicorn[standard]==0.32.0
+
+# Pydantic - Data validation
+pydantic==2.9.2
+
+# Supabase client
+supabase==2.9.1
+
+# Python dotenv - Environment variables
+python-dotenv==1.0.1
+
+# HTTP requests
+requests==2.32.3
+
+# PostgreSQL adapter (for direct DB access if needed)
+psycopg2-binary==2.9.10
+
+# Additional utilities
+python-multipart==0.0.17
+
+# Testing (optional)
+# pytest==8.3.4
+# httpx==0.28.1
 
