@@ -80,11 +80,16 @@
       "name": "Process Singlish",
       "url": "https://scbackend-qfh6.onrender.com/api/orchestrator/process-singlish",
       "method": "POST",
-      "status": 500,
+      "status": 200,
       "expected": 200,
-      "success": false,
+      "success": true,
       "response": {
-        "detail": "Error processing Singlish: GPT translation failed: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************ZwIA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}"
+        "success": true,
+        "user_id": "render_test",
+        "singlish_raw": "walao this uncle cut queue sia",
+        "clean_english": "Oh my goodness, this man is cutting in line!",
+        "sentiment": "frustrated",
+        "tone": "informal"
       }
     },
     {

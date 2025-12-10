@@ -249,7 +249,7 @@ async def process_message(request: TextMessage):
             intent = "emergency"
         else:
             intent = "general"
-            intent_data = {"intent": intent}
+        intent_data = {"intent": intent}
     
     # Execute actions based on intent
     try:
