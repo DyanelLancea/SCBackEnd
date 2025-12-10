@@ -8,9 +8,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import base64
+import httpx
+import json
 import os
 import tempfile
-import json
 from openai import OpenAI
 from app.shared.supabase import get_supabase_client
 
@@ -35,6 +36,14 @@ class TextMessage(BaseModel):
     """Text message from user"""
     user_id: str
     message: str
+    location: Optional[str] = None  # Optional location from voice/message
+
+
+class VoiceMessage(BaseModel):
+    """Voice recording message from user"""
+    user_id: str
+    transcript: str  # Transcribed text from voice recording
+    location: Optional[str] = None  # Optional location
 
 
 class SinglishProcessRequest(BaseModel):
@@ -60,10 +69,24 @@ def orchestrator_info():
         ],
         "endpoints": {
             "message": "/api/orchestrator/message",
+            "voice": "/api/orchestrator/voice",
             "history": "/api/orchestrator/history/{user_id}"
         },
         "status": "ready"
     }
+
+
+def detect_emergency_intent(text: str) -> bool:
+    """
+    Detect if message contains emergency intent keywords
+    """
+    message_lower = text.lower()
+    emergency_keywords = [
+        "emergency", "sos", "help", "urgent", "danger", "accident",
+        "injured", "hurt", "pain", "need help", "call help", "assistance",
+        "rescue", "ambulance", "hospital", "911", "999"
+    ]
+    return any(keyword in message_lower for keyword in emergency_keywords)
 
 
 @router.post("/message")
@@ -71,26 +94,120 @@ def process_message(request: TextMessage):
     """
     Process a text message from the user
     Routes to appropriate module based on intent
+    Automatically triggers SOS call if emergency intent detected
     """
     message_lower = request.message.lower()
+    sos_triggered = False
+    sos_response_data = None
     
-    # Simple intent detection
-    if any(word in message_lower for word in ["event", "activity", "happening"]):
+    # Check for emergency intent first
+    if detect_emergency_intent(request.message):
+        intent = "emergency"
+        
+        # Automatically trigger SOS call via internal API call
+        try:
+            base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
+            with httpx.Client(timeout=30.0) as client:
+                sos_response = client.post(
+                    f"{base_url}/api/safety/sos",
+                    json={
+                        "user_id": request.user_id,
+                        "location": request.location,
+                        "message": request.message
+                    }
+                )
+                if sos_response.status_code == 200:
+                    sos_response_data = sos_response.json()
+                    sos_triggered = sos_response_data.get("call_successful", False)
+                    message = "Emergency SOS call has been triggered automatically. Help is on the way!"
+                else:
+                    sos_response_data = {"error": f"HTTP {sos_response.status_code}"}
+                    message = "Emergency detected, but SOS call failed."
+        except Exception as e:
+            message = f"Emergency detected, but SOS call failed: {str(e)}"
+            sos_response_data = {"error": str(e)}
+    
+    # Other intent detection
+    elif any(word in message_lower for word in ["event", "activity", "happening"]):
         intent = "find_events"
         message = "Looking for events! Check /api/events/list for available events."
-    elif any(word in message_lower for word in ["help", "emergency", "sos"]):
-        intent = "emergency"
-        message = "Emergency detected! Check /api/safety/emergency for emergency features."
     else:
         intent = "general"
         message = "I can help you find events, manage reminders, or handle emergencies!"
     
-    return {
+    response = {
         "success": True,
         "intent": intent,
         "message": message,
-        "user_id": request.user_id
+        "user_id": request.user_id,
+        "sos_triggered": sos_triggered
     }
+    
+    if sos_triggered and sos_response_data:
+        response["sos_response"] = sos_response_data
+    
+    return response
+
+
+@router.post("/voice")
+def process_voice_message(request: VoiceMessage):
+    """
+    Process a voice recording message from the user
+    Transcribed text is analyzed for intent
+    Automatically triggers SOS call if emergency intent detected
+    """
+    message_lower = request.transcript.lower()
+    sos_triggered = False
+    sos_response_data = None
+    
+    # Check for emergency intent
+    if detect_emergency_intent(request.transcript):
+        intent = "emergency"
+        
+        # Automatically trigger SOS call via internal API call
+        try:
+            base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
+            with httpx.Client(timeout=30.0) as client:
+                sos_response = client.post(
+                    f"{base_url}/api/safety/sos",
+                    json={
+                        "user_id": request.user_id,
+                        "location": request.location,
+                        "message": f"Voice message: {request.transcript}"
+                    }
+                )
+                if sos_response.status_code == 200:
+                    sos_response_data = sos_response.json()
+                    sos_triggered = sos_response_data.get("call_successful", False)
+                    message = "Emergency SOS call has been triggered automatically from your voice message. Help is on the way!"
+                else:
+                    sos_response_data = {"error": f"HTTP {sos_response.status_code}"}
+                    message = "Emergency detected in voice message, but SOS call failed."
+        except Exception as e:
+            message = f"Emergency detected in voice message, but SOS call failed: {str(e)}"
+            sos_response_data = {"error": str(e)}
+    
+    # Other intent detection
+    elif any(word in message_lower for word in ["event", "activity", "happening"]):
+        intent = "find_events"
+        message = "Looking for events! Check /api/events/list for available events."
+    else:
+        intent = "general"
+        message = "I can help you find events, manage reminders, or handle emergencies!"
+    
+    response = {
+        "success": True,
+        "intent": intent,
+        "message": message,
+        "user_id": request.user_id,
+        "transcript": request.transcript,
+        "sos_triggered": sos_triggered
+    }
+    
+    if sos_triggered and sos_response_data:
+        response["sos_response"] = sos_response_data
+    
+    return response
 
 
 @router.get("/history/{user_id}")

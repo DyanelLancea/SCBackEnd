@@ -59,7 +59,7 @@ SCBackEnd/
 │   │   ├── __init__.py
 │   │   └── routes.py           # Emergency alerts, location (basic)
 │   │
-│   ├── ochestrator/            # Request coordinator
+│   ├── orchestrator/            # Request coordinator
 │   │   ├── __init__.py
 │   │   └── routes.py           # Message processing (basic)
 │   │

@@ -167,7 +167,7 @@ SCBackEnd/
 │   │   └── routes.py          # Wellness endpoints
 │   ├── safety/
 │   │   └── routes.py          # Safety endpoints
-│   ├── ochestrator/
+│   ├── orchestrator/
 │   │   └── routes.py          # Orchestrator endpoints
 │   └── shared/
 │       └── supabase.py        # Supabase connection

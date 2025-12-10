@@ -130,7 +130,7 @@ SCBackEnd/
 │   ├── events/routes.py     # Events API
 │   ├── wellness/routes.py   # Wellness API
 │   ├── safety/routes.py     # Safety API
-│   ├── ochestrator/routes.py # Orchestrator API
+│   ├── orchestrator/routes.py # Orchestrator API
 │   └── shared/supabase.py   # Database connection
 ├── z_Docs/                  # Documentation
 │   ├── API_REFERENCE.md
