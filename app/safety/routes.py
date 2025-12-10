@@ -197,6 +197,17 @@ def trigger_sos(sos_request: SOSRequest):
         raise HTTPException(status_code=500, detail=f"Failed to trigger SOS: {str(e)}")
 
 
+# Emergency Endpoint (alias for /sos for frontend compatibility)
+@router.post("/emergency")
+def trigger_emergency(sos_request: SOSRequest):
+    """
+    Trigger an emergency alert (alias for /sos endpoint).
+    This endpoint exists for frontend compatibility.
+    """
+    # Simply call the SOS endpoint
+    return trigger_sos(sos_request)
+
+
 # Location Endpoint
 @router.post("/location")
 def update_location(location: LocationRequest):
