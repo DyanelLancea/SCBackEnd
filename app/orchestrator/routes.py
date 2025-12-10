@@ -249,7 +249,7 @@ async def process_message(request: TextMessage):
             intent = "emergency"
         else:
             intent = "general"
-        intent_data = {"intent": intent}
+            intent_data = {"intent": intent}
     
     # Execute actions based on intent
     try:
@@ -756,6 +756,7 @@ async def process_audio_with_whisper(audio_base64: str) -> str:
 async def translate_singlish_to_english(transcript: str) -> Dict[str, str]:
     """
     Translate Singlish to clean English and analyze sentiment/tone
+    Tries SEA-LION/Merlion first (if configured), falls back to OpenAI
     
     Args:
         transcript: Raw Singlish transcript
@@ -764,7 +765,7 @@ async def translate_singlish_to_english(transcript: str) -> Dict[str, str]:
         Dictionary with singlish_raw, clean_english, sentiment, tone
     """
     try:
-        # Create prompt for GPT
+        # Create prompt for LLM
         prompt = f"""You are an expert in Singlish (Singaporean English) and standard English translation.
 
 Your task:
@@ -784,10 +785,126 @@ Respond ONLY in this exact JSON format (no markdown, no extra text):
     "tone": "detected tone"
 }}"""
 
-        # Call GPT API (try gpt-4, fallback to gpt-3.5-turbo)
-        client = get_openai_client()
-        try:
-            model = "gpt-4"
+        # Try SEA-LION/Merlion first (if configured)
+        sea_lion_url = os.getenv("SEA_LION_API_URL")
+        sea_lion_api_key = os.getenv("SEA_LION_API_KEY")
+        
+        if sea_lion_url:
+            try:
+                return await call_sea_lion_api(sea_lion_url, sea_lion_api_key, prompt, transcript)
+            except Exception as e:
+                # Fallback to OpenAI if SEA-LION fails
+                print(f"SEA-LION API failed: {e}, falling back to OpenAI")
+        
+        # Fallback to OpenAI
+        return await call_openai_api(prompt, transcript)
+        
+    except Exception as e:
+        raise Exception(f"Translation failed: {str(e)}")
+
+
+async def call_sea_lion_api(api_url: str, api_key: Optional[str], prompt: str, transcript: str) -> Dict[str, str]:
+    """
+    Call SEA-LION or Merlion LLM API
+    
+    Args:
+        api_url: SEA-LION API endpoint URL
+        api_key: Optional API key (if required)
+        prompt: The prompt to send
+        transcript: Original transcript
+    
+    Returns:
+        Dictionary with translation results
+    """
+    import httpx
+    
+    headers = {
+        "Content-Type": "application/json"
+    }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    
+    # SEA-LION API format (official API)
+    payload = {
+        "model": "aisingapore/Gemma-SEA-LION-v4-27B-IT",
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a Singlish translation expert. Always respond with valid JSON only."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 500
+    }
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(api_url, json=payload, headers=headers)
+        response.raise_for_status()
+        result = response.json()
+        
+        # Parse response (adjust based on actual API response format)
+        if "choices" in result:
+            text = result["choices"][0]["message"]["content"].strip()
+        elif "text" in result:
+            text = result["text"].strip()
+        else:
+            text = str(result).strip()
+        
+        # Remove markdown code blocks if present
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.strip()
+        
+        result_data = json.loads(text)
+        
+        return {
+            "singlish_raw": transcript,
+            "clean_english": result_data.get("clean_english", ""),
+            "sentiment": result_data.get("sentiment", "neutral"),
+            "tone": result_data.get("tone", "informal")
+        }
+
+
+async def call_openai_api(prompt: str, transcript: str) -> Dict[str, str]:
+    """
+    Call OpenAI API for translation (fallback)
+    
+    Args:
+        prompt: The prompt to send
+        transcript: Original transcript
+    
+    Returns:
+        Dictionary with translation results
+    """
+    # Call GPT API (try gpt-4, fallback to gpt-3.5-turbo)
+    client = get_openai_client()
+    try:
+        model = "gpt-4"
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a Singlish translation expert. Always respond with valid JSON only."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.7,
+            max_tokens=500
+        )
+    except Exception as e:
+        # Fallback to gpt-3.5-turbo if gpt-4 is not available
+        if "gpt-4" in str(e).lower() or "model" in str(e).lower():
+            model = "gpt-3.5-turbo"
             response = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -803,38 +920,20 @@ Respond ONLY in this exact JSON format (no markdown, no extra text):
                 temperature=0.7,
                 max_tokens=500
             )
-        except Exception as e:
-            # Fallback to gpt-3.5-turbo if gpt-4 is not available
-            if "gpt-4" in str(e).lower() or "model" in str(e).lower():
-                model = "gpt-3.5-turbo"
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a Singlish translation expert. Always respond with valid JSON only."
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
-                    ],
-                    temperature=0.7,
-                    max_tokens=500
-                )
-            else:
-                raise
+        else:
+            raise
         
-        # Parse response
-        result_text = response.choices[0].message.content.strip()
-        
-        # Remove markdown code blocks if present
-        if result_text.startswith("```"):
-            result_text = result_text.split("```")[1]
-            if result_text.startswith("json"):
-                result_text = result_text[4:]
-            result_text = result_text.strip()
-        
+    # Parse response
+    result_text = response.choices[0].message.content.strip()
+    
+    # Remove markdown code blocks if present
+    if result_text.startswith("```"):
+        result_text = result_text.split("```")[1]
+        if result_text.startswith("json"):
+            result_text = result_text[4:]
+        result_text = result_text.strip()
+    
+    try:
         result = json.loads(result_text)
         
         return {
@@ -843,7 +942,6 @@ Respond ONLY in this exact JSON format (no markdown, no extra text):
             "sentiment": result.get("sentiment", "neutral"),
             "tone": result.get("tone", "informal")
         }
-    
     except json.JSONDecodeError:
         # Fallback if JSON parsing fails
         return {
@@ -853,5 +951,5 @@ Respond ONLY in this exact JSON format (no markdown, no extra text):
             "tone": "unknown"
         }
     except Exception as e:
-        raise Exception(f"GPT translation failed: {str(e)}")
+        raise Exception(f"OpenAI translation failed: {str(e)}")
 

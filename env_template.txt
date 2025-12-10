@@ -25,7 +25,14 @@ SOS_EMERGENCY_NUMBER=+6598631975
 # Supabase Service Role Key (optional, for admin operations)
 # SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
-# OpenAI Configuration (REQUIRED for Singlish processing)
+# LLM Configuration for Singlish Processing
+# Option 1: Use SEA-LION (RECOMMENDED for Singlish - better understanding)
+# Get API key from: https://playground.sea-lion.ai/ → API Key Manager
+# Sign in with Google → Create New Trial API Key
+SEA_LION_API_URL=https://api.sea-lion.ai/v1/chat/completions
+SEA_LION_API_KEY=your-sea-lion-api-key-here
+
+# Option 2: Use OpenAI (fallback if SEA-LION not configured)
 # Get your API key from: https://platform.openai.com/api-keys
 OPENAI_API_KEY=your-openai-api-key-here
 
