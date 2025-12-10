@@ -6,6 +6,6 @@ router = APIRouter()
 
 
 @router.get("/")
-def wellness_root():
-    return {"status": "Wellness agent running"}
+def orchestrator_root():
+    return {"status": "Orchestrator agent running"}
 
