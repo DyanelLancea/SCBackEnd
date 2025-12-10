@@ -1,12 +1,22 @@
 from datetime import datetime
 from typing import Optional
 import os
-import requests
+from twilio.rest import Client
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.shared.supabase import get_supabase_client
+
+# Try to import zoneinfo for timezone handling
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    # Fallback for older Python versions
+    try:
+        from backports.zoneinfo import ZoneInfo
+    except ImportError:
+        ZoneInfo = None
 
 router = APIRouter()
 
@@ -51,35 +61,100 @@ def trigger_sos(sos_request: SOSRequest):
         
         sos_response = supabase.table("sos_logs").insert(sos_data).execute()
 
-        # Send Telegram emergency alert (FREE)
+        # Get latest location data if available
+        location_response = (
+            supabase.table("location_logs")
+            .select("*")
+            .eq("user_id", sos_request.user_id)
+            .order("timestamp", desc=True)
+            .limit(1)
+            .execute()
+        )
+        latest_location = location_response.data[0] if location_response.data else None
+
+        # Format current time in Singapore timezone
         try:
-            # Telegram Bot credentials
-            bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-            chat_id = os.getenv("TELEGRAM_CHAT_ID")
-            
-            if bot_token and chat_id:
-                # Telegram API endpoint
-                url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-                
-                # Emergency message
-                message_text = f"🚨 EMERGENCY SOS ALERT 🚨\n\nUser: {sos_request.user_id}\nLocation: {sos_request.location or 'Unknown'}\nMessage: {sos_request.message or 'No message'}\nTime: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n⚠️ PLEASE RESPOND IMMEDIATELY!"
-                
-                payload = {
-                    "chat_id": chat_id,
-                    "text": message_text
-                }
-                
-                # Send Telegram message
-                response = requests.post(url, json=payload)
-                
-                if response.status_code == 200:
-                    call_status = "Emergency alert sent via Telegram (FREE)"
-                else:
-                    call_status = f"Telegram send failed: {response.text}"
+            if ZoneInfo:
+                sg_tz = ZoneInfo("Asia/Singapore")
+                current_time_sg = datetime.now(sg_tz)
+                time_str = current_time_sg.strftime("%B %d, %Y at %I:%M %p Singapore time")
             else:
-                call_status = "Telegram not configured. Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to .env"
+                # Fallback: add 8 hours for Singapore timezone (UTC+8)
+                current_time_sg = datetime.utcnow()
+                from datetime import timedelta
+                current_time_sg = current_time_sg + timedelta(hours=8)
+                time_str = current_time_sg.strftime("%B %d, %Y at %I:%M %p Singapore time")
+        except Exception:
+            current_time_sg = datetime.utcnow()
+            time_str = current_time_sg.strftime("%B %d, %Y at %I:%M %p UTC")
+
+        # Build comprehensive location information
+        location_info = sos_request.location or "Unknown location"
+        if latest_location:
+            if latest_location.get("latitude") and latest_location.get("longitude"):
+                location_info += f". GPS Coordinates: Latitude {latest_location.get('latitude')}, Longitude {latest_location.get('longitude')}"
+
+        # Build the automated message for the phone call
+        message_parts = [
+            "Emergency SOS Alert.",
+            f"This is an automated emergency alert from user {sos_request.user_id}.",
+            f"Alert triggered on {time_str}.",
+            f"Location: {location_info}.",
+        ]
+        
+        if sos_request.message:
+            message_parts.append(f"User message: {sos_request.message}.")
+        
+        message_parts.append("This requires immediate attention. Please respond as soon as possible.")
+        emergency_message = " ".join(message_parts)
+
+        # Make emergency call using Twilio
+        emergency_number = "+6598631975"
+        # Get Twilio phone number from environment or use default
+        from_number = os.getenv("TWILIO_PHONE_NUMBER", "+13099280903")  # Your verified Twilio number
+        call_sid = None
+        call_error_details = None
+        
+        try:
+            account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+            auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+            
+            if not account_sid or not auth_token:
+                call_status = "Twilio not configured - Missing Account SID or Auth Token. Please check your .env file."
+                call_error_details = "TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set in environment variables"
+            else:
+                client = Client(account_sid, auth_token)
+                
+                # Escape special characters for XML/TwiML
+                safe_message = emergency_message.replace("&", "and").replace("<", "less than").replace(">", "greater than")
+                
+                # Make the call with detailed automated message
+                call = client.calls.create(
+                    twiml=f'<Response><Say voice="alice" language="en-US">{safe_message}</Say><Pause length="2"/><Say voice="alice" language="en-US">Repeating alert details. {safe_message}</Say></Response>',
+                    to=emergency_number,
+                    from_=from_number
+                )
+                call_sid = call.sid
+                call_status = f"Emergency call successfully initiated to {emergency_number}. Call SID: {call.sid}"
+                
         except Exception as call_error:
-            call_status = f"Telegram send failed: {str(call_error)}"
+            error_str = str(call_error)
+            call_status = f"Call failed: {error_str}"
+            call_error_details = error_str
+            
+            # Provide helpful error messages for common issues
+            if "not yet verified" in error_str.lower():
+                call_error_details = f"The phone number {from_number} is not verified in your Twilio account. Please verify it or use a different Twilio number."
+            elif "not authorized to call" in error_str.lower() or "geo-permissions" in error_str.lower():
+                call_error_details = f"Your Twilio account is not authorized to call {emergency_number}. Enable international calling permissions at: https://www.twilio.com/console/voice/calls/geo-permissions/low-risk"
+            elif "http error" in error_str.lower():
+                # Extract more details from Twilio error
+                if "21210" in error_str:
+                    call_error_details = f"The source phone number {from_number} is not verified. Verify it in Twilio Console or use your actual Twilio number."
+                elif "21215" in error_str:
+                    call_error_details = f"International calling not enabled for {emergency_number}. Enable at: https://www.twilio.com/console/voice/calls/geo-permissions/low-risk"
+                elif "21211" in error_str:
+                    call_error_details = f"Invalid phone number format: {emergency_number}. Check the number format."
         
         # Find linked caregivers
         caregivers_response = (
@@ -90,11 +165,18 @@ def trigger_sos(sos_request: SOSRequest):
         )
         caregivers = caregivers_response.data if caregivers_response.data else []
 
+        # Determine overall success based on call status
+        call_successful = call_sid is not None and "successfully initiated" in call_status.lower()
+        
         return {
             "success": True,
             "message": "SOS alert triggered",
-            "emergency_telegram_sent": True,
+            "emergency_call_initiated": emergency_number,
+            "call_from_number": from_number,
+            "call_sid": call_sid,
             "alert_status": call_status,
+            "call_successful": call_successful,
+            "error_details": call_error_details,
             "sos_log": sos_response.data[0] if sos_response.data else None,
             "caregivers_notified": len(caregivers),
             "caregivers": caregivers,
