@@ -10,14 +10,23 @@ from typing import Optional, Dict, Any
 import base64
 import os
 import tempfile
+import json
 from openai import OpenAI
 from app.shared.supabase import get_supabase_client
 
 
 router = APIRouter()
 
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Initialize OpenAI client lazily (only when needed)
+def get_openai_client():
+    """Get OpenAI client, initializing if needed"""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="OPENAI_API_KEY environment variable is not set. Please configure it in your environment."
+        )
+    return OpenAI(api_key=api_key)
 
 
 # ==================== REQUEST MODELS ====================
@@ -181,8 +190,9 @@ async def process_audio_with_whisper(audio_base64: str) -> str:
         
         try:
             # Call Whisper API
+            client = get_openai_client()
             with open(temp_audio_path, "rb") as audio_file:
-                transcription = openai_client.audio.transcriptions.create(
+                transcription = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio_file,
                     language="en"  # Singlish is primarily English-based
@@ -230,25 +240,48 @@ Respond ONLY in this exact JSON format (no markdown, no extra text):
     "tone": "detected tone"
 }}"""
 
-        # Call GPT API
-        response = openai_client.chat.completions.create(
-            model="gpt-4",  # Use GPT-4 for better Singlish understanding
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a Singlish translation expert. Always respond with valid JSON only."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            temperature=0.7,
-            max_tokens=500
-        )
+        # Call GPT API (try gpt-4, fallback to gpt-3.5-turbo)
+        client = get_openai_client()
+        try:
+            model = "gpt-4"
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a Singlish translation expert. Always respond with valid JSON only."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.7,
+                max_tokens=500
+            )
+        except Exception as e:
+            # Fallback to gpt-3.5-turbo if gpt-4 is not available
+            if "gpt-4" in str(e).lower() or "model" in str(e).lower():
+                model = "gpt-3.5-turbo"
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a Singlish translation expert. Always respond with valid JSON only."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    temperature=0.7,
+                    max_tokens=500
+                )
+            else:
+                raise
         
         # Parse response
-        import json
         result_text = response.choices[0].message.content.strip()
         
         # Remove markdown code blocks if present
