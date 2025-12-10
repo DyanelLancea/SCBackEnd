@@ -18,6 +18,7 @@ from app.shared.supabase import get_supabase_client
 
 router = APIRouter()
 
+<<<<<<< HEAD
 # Initialize OpenAI client lazily (only when needed)
 def get_openai_client():
     """Get OpenAI client, initializing if needed"""
@@ -28,6 +29,11 @@ def get_openai_client():
             detail="OPENAI_API_KEY environment variable is not set. Please configure it in your environment."
         )
     return OpenAI(api_key=api_key)
+=======
+# Initialize OpenAI client (only if API key is available)
+openai_api_key = os.getenv("OPENAI_API_KEY")
+openai_client = OpenAI(api_key=openai_api_key) if openai_api_key else None
+>>>>>>> cffe63d (feat: Add automatic SOS trigger for emergency intent in voice/text messages)
 
 
 # ==================== REQUEST MODELS ====================
@@ -296,6 +302,12 @@ async def process_audio_with_whisper(audio_base64: str) -> str:
     Returns:
         Transcribed text
     """
+    if not openai_client:
+        raise HTTPException(
+            status_code=503,
+            detail="OpenAI API key not configured. Please set OPENAI_API_KEY in .env file."
+        )
+    
     try:
         # Decode base64 audio
         audio_bytes = base64.b64decode(audio_base64)
@@ -336,6 +348,12 @@ async def translate_singlish_to_english(transcript: str) -> Dict[str, str]:
     Returns:
         Dictionary with singlish_raw, clean_english, sentiment, tone
     """
+    if not openai_client:
+        raise HTTPException(
+            status_code=503,
+            detail="OpenAI API key not configured. Please set OPENAI_API_KEY in .env file."
+        )
+    
     try:
         # Create prompt for GPT
         prompt = f"""You are an expert in Singlish (Singaporean English) and standard English translation.
