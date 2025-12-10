@@ -1,2 +1,5 @@
-# Safety Agent Module
+"""
+Safety Module
+Emergency response and location tracking
+"""
 

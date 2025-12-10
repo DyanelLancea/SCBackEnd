@@ -2,8 +2,8 @@
 # Copy this file to .env and fill in your actual values
 
 # Supabase Configuration
-SUPABASE_URL=https://gdooqnxjzujzcvcsatiz.supabase.co
-SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdkb29xbnhqenVqemN2Y3NhdGl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzMzY2NjcsImV4cCI6MjA4MDkxMjY2N30.qPQ0nRxYymLBTGX0KpC1d6Xi3mz2RddeoBUoaNKcH30
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_KEY=your-supabase-anon-key
 
 # API Configuration
 API_HOST=0.0.0.0
