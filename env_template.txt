@@ -13,7 +13,8 @@ API_RELOAD=True
 # CORS Origins (comma-separated)
 CORS_ORIGINS=http://localhost:3000,http://localhost:3001
 
-# Optional: AI Services (for future features)
-# OPENAI_API_KEY=your-openai-api-key
-# ELEVENLABS_API_KEY=your-elevenlabs-api-key
+# AI Services (Required for Orchestrator)
+OPENAI_API_KEY=your-openai-api-key
 
+# Optional: Additional AI Services
+# ELEVENLABS_API_KEY=your-elevenlabs-api-key
