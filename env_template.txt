@@ -25,7 +25,10 @@ SOS_EMERGENCY_NUMBER=+6598631975
 # Supabase Service Role Key (optional, for admin operations)
 # SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
-# Optional: AI Services (for future features)
-# OPENAI_API_KEY=your-openai-api-key
+# OpenAI Configuration (REQUIRED for Singlish processing)
+# Get your API key from: https://platform.openai.com/api-keys
+OPENAI_API_KEY=your-openai-api-key-here
+
+# Optional: Other AI Services
 # ELEVENLABS_API_KEY=your-elevenlabs-api-key
 

@@ -27,6 +27,9 @@ psycopg2-binary==2.9.10
 # Additional utilities
 python-multipart==0.0.17
 
+# OpenAI - Whisper STT and GPT for Singlish translation
+openai==1.54.0
+
 # Testing (optional)
 # pytest==8.3.4
 # httpx==0.28.1
