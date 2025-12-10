@@ -51,30 +51,35 @@ def trigger_sos(sos_request: SOSRequest):
         
         sos_response = supabase.table("sos_logs").insert(sos_data).execute()
 
-        # Simulate emergency call (free version)
-        emergency_number = "+6598631975"
+        # Send Telegram emergency alert (FREE)
         try:
-            # Log emergency details
-            emergency_log = {
-                "timestamp": datetime.utcnow().isoformat(),
-                "user_id": sos_request.user_id,
-                "location": sos_request.location or "Unknown",
-                "message": sos_request.message or "No message",
-                "emergency_contact": emergency_number
-            }
+            # Telegram Bot credentials
+            bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+            chat_id = os.getenv("TELEGRAM_CHAT_ID")
             
-            # Simulate call attempt
-            print(f"🚨 EMERGENCY CALL SIMULATION 🚨")
-            print(f"Calling: {emergency_number}")
-            print(f"User: {sos_request.user_id}")
-            print(f"Location: {sos_request.location or 'Unknown'}")
-            print(f"Message: {sos_request.message or 'No message'}")
-            print(f"Time: {datetime.utcnow()}")
-            
-            call_status = f"Emergency call simulated to {emergency_number}. Check server logs for details."
-            
+            if bot_token and chat_id:
+                # Telegram API endpoint
+                url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                
+                # Emergency message
+                message_text = f"🚨 EMERGENCY SOS ALERT 🚨\n\nUser: {sos_request.user_id}\nLocation: {sos_request.location or 'Unknown'}\nMessage: {sos_request.message or 'No message'}\nTime: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n⚠️ PLEASE RESPOND IMMEDIATELY!"
+                
+                payload = {
+                    "chat_id": chat_id,
+                    "text": message_text
+                }
+                
+                # Send Telegram message
+                response = requests.post(url, json=payload)
+                
+                if response.status_code == 200:
+                    call_status = "Emergency alert sent via Telegram (FREE)"
+                else:
+                    call_status = f"Telegram send failed: {response.text}"
+            else:
+                call_status = "Telegram not configured. Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to .env"
         except Exception as call_error:
-            call_status = f"Emergency simulation failed: {str(call_error)}"
+            call_status = f"Telegram send failed: {str(call_error)}"
         
         # Find linked caregivers
         caregivers_response = (
@@ -88,7 +93,7 @@ def trigger_sos(sos_request: SOSRequest):
         return {
             "success": True,
             "message": "SOS alert triggered",
-            "emergency_whatsapp_sent": f"+{emergency_number}",
+            "emergency_telegram_sent": True,
             "alert_status": call_status,
             "sos_log": sos_response.data[0] if sos_response.data else None,
             "caregivers_notified": len(caregivers),
