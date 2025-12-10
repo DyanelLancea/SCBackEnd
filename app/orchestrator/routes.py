@@ -97,6 +97,27 @@ def detect_emergency_intent(text: str) -> bool:
     return any(keyword in message_lower for keyword in emergency_keywords)
 
 
+def validate_and_get_uuid(value: Any) -> Optional[str]:
+    """
+    Safely validate and return a UUID string, or None if invalid.
+    This function ensures we NEVER use non-UUID values like "1".
+    """
+    if not value:
+        return None
+    
+    value_str = str(value).strip()
+    uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+    
+    # Strict validation: must be exactly 36 chars with 4 hyphens
+    if (uuid_pattern.match(value_str) and 
+        len(value_str) == 36 and 
+        value_str.count('-') == 4):
+        return value_str
+    
+    # Reject anything that's not a valid UUID (including "1", numbers, etc.)
+    return None
+
+
 async def detect_intent_and_extract_info(user_message: str, user_id: str) -> Dict[str, Any]:
     """
     Use GPT to intelligently detect user intent and extract relevant information
@@ -322,20 +343,21 @@ async def process_message(request: TextMessage):
                         # Skip events with invalid IDs (shouldn't happen, but safety first)
                     
                     # Try to find event by ID from intent_data (validate it's a UUID)
+                    # IMPORTANT: Completely ignore any non-UUID values from GPT (like "1")
                     potential_id = intent_data.get("event_id")
                     if potential_id:
-                        # Validate UUID format (basic check) - reject if it's just a number like "1"
-                        uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
-                        potential_id_str = str(potential_id).strip()
-                        # Reject simple numbers or non-UUID strings
-                        if uuid_pattern.match(potential_id_str) and len(potential_id_str) == 36:
-                            # Check if this event exists
+                        # Use helper function to validate - this will return None for "1" or any invalid value
+                        validated_potential_id = validate_and_get_uuid(potential_id)
+                        if validated_potential_id:
+                            # Valid UUID format - check if this event exists
                             for event in events:
                                 event_uuid = event.get("id")
-                                if event_uuid and str(event_uuid) == potential_id_str:
-                                    event_id = event_uuid
+                                # Use helper to validate event UUID too
+                                validated_event_uuid = validate_and_get_uuid(event_uuid)
+                                if validated_event_uuid and validated_event_uuid == validated_potential_id:
+                                    event_id = validated_event_uuid
                                     break
-                        # If potential_id is invalid (like "1"), ignore it and continue to name matching
+                        # If potential_id is invalid (like "1"), helper returns None - completely ignore it
                     
                     # If no valid ID found, try to match by name with improved matching
                     if not event_id and event_name:
@@ -356,17 +378,17 @@ async def process_message(request: TextMessage):
                             
                             # Strategy 1: Normalized string match (handles "pickleball" vs "pickle ball")
                             if normalized_search == normalized_title or normalized_search in normalized_title or normalized_title in normalized_search:
-                                # Validate UUID before setting
-                                uuid_pattern_check = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
-                                if uuid_pattern_check.match(str(event_uuid)):
-                                    event_id = event_uuid
+                                # Validate UUID before setting using helper function
+                                validated_uuid = validate_and_get_uuid(event_uuid)
+                                if validated_uuid:
+                                    event_id = validated_uuid
                                     break
                             
                             # Strategy 2: Substring match in original strings
                             if event_name in event_title or event_title in event_name:
-                                uuid_pattern_check = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
-                                if uuid_pattern_check.match(str(event_uuid)):
-                                    event_id = event_uuid
+                                validated_uuid = validate_and_get_uuid(event_uuid)
+                                if validated_uuid:
+                                    event_id = validated_uuid
                                     break
                             
                             # Strategy 3: Word-based matching with scoring
@@ -385,21 +407,19 @@ async def process_message(request: TextMessage):
                                 
                                 score = matched_count / len(search_words) if search_words else 0
                                 if score > best_score:
-                                    # Validate UUID before storing as best match
-                                    uuid_pattern_check = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
-                                    if uuid_pattern_check.match(str(event_uuid)):
+                                    # Validate UUID before storing as best match using helper function
+                                    validated_uuid = validate_and_get_uuid(event_uuid)
+                                    if validated_uuid:
                                         best_score = score
-                                        best_match = event_uuid
+                                        best_match = validated_uuid
                         
                         # Use best match if no exact match found but we have a good candidate
                         if not event_id and best_match and best_score >= 0.6:
-                            # Validate best_match is a proper UUID
-                            uuid_pattern_check = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
-                            if uuid_pattern_check.match(str(best_match)):
-                                event_id = best_match
-                            else:
-                                # Invalid UUID in best_match - clear it
-                                event_id = None
+                            # Validate best_match is a proper UUID using helper function
+                            validated_uuid = validate_and_get_uuid(best_match)
+                            if validated_uuid:
+                                event_id = validated_uuid
+                            # If invalid, event_id stays None (don't use invalid match)
                     
                     # If still no match and user just said "book event" without specifics, show available events
                     if not event_id and not event_name:
@@ -431,25 +451,26 @@ async def process_message(request: TextMessage):
                                     normalized_title = re.sub(r'[\s\-_]', '', event_title)
                                     normalized_search = re.sub(r'[\s\-_]', '', event_name.lower())
                                     if normalized_search in normalized_title or event_name in event_title:
-                                        event_id = event.get("id")
-                                        # Validate the new ID
-                                        if uuid_pattern.match(str(event_id)):
-                                            break
-                                        else:
-                                            event_id = None
+                                        candidate_id = event.get("id")
+                                        # Validate the ID BEFORE assigning
+                                        validated_uuid = validate_and_get_uuid(candidate_id)
+                                    if validated_uuid:
+                                        event_id = validated_uuid
+                                        break
+                                    # If invalid, don't assign - keep event_id as None
                             
                             if not event_id or not uuid_pattern.match(str(event_id)):
                                 message = f"I couldn't find a valid event matching '{event_name}'. Please try again with the exact event name."
                                 action_result = {"error": "Could not find valid event"}
                         
-                        # Only proceed if we have a valid UUID - final safety check
+                        # Only proceed if we have a valid UUID - final safety check using helper function
                         if event_id:
-                            event_id_str = str(event_id).strip()
-                            # CRITICAL: Reject any non-UUID value including numbers like "1"
-                            if not uuid_pattern.match(event_id_str) or len(event_id_str) != 36:
+                            # Use the validation helper to ensure we have a valid UUID
+                            event_id_str = validate_and_get_uuid(event_id)
+                            if not event_id_str:
                                 # This should never happen, but if it does, fail safely
-                                message = f"System error: Invalid event ID detected ({event_id_str}). Please try saying the event name again, for example: 'I want to join the pickleball event'"
-                                action_result = {"error": f"Invalid event_id: {event_id_str} (expected UUID format)"}
+                                message = f"System error: Invalid event ID detected ({event_id}). Please try saying the event name again, for example: 'I want to join the workout event'"
+                                action_result = {"error": f"Invalid event_id: {event_id} (expected UUID format)"}
                             else:
                                 # Found event with valid UUID, register user
                                 register_resp = await client.post(
@@ -461,13 +482,27 @@ async def process_message(request: TextMessage):
                                 )
                                 if register_resp.status_code == 200:
                                     action_result = register_resp.json()
-                                    # Get event title for confirmation message
-                                    event_title = "the event"
+                                    # Get full event details for confirmation
+                                    event_details = None
                                     for event in events:
                                         if str(event.get("id")) == event_id_str:
-                                            event_title = event.get("title", "the event")
+                                            event_details = event
                                             break
+                                    
+                                    event_title = event_details.get("title", "the event") if event_details else "the event"
                                     message = f"Successfully registered you for '{event_title}'! Registration confirmed."
+                                    
+                                    # Add navigation and confirmation data for frontend
+                                    action_result["navigation"] = {
+                                        "action": "navigate_to_booking_confirmation",
+                                        "route": "/events/booking/confirmation",
+                                        "event_id": event_id_str,
+                                        "should_navigate": True
+                                    }
+                                    action_result["event_details"] = event_details
+                                    action_result["confirmation_message"] = f"You're all set! You're registered for '{event_title}' on {event_details.get('date', 'TBA')} at {event_details.get('time', 'TBA')}."
+                                    action_result["booking_confirmed"] = True
+                                    
                                     action_executed = True
                                 else:
                                     error_detail = register_resp.json().get("detail", register_resp.text) if register_resp.headers.get("content-type", "").startswith("application/json") else register_resp.text
@@ -598,6 +633,12 @@ async def process_message(request: TextMessage):
     
     if action_result:
         response["action_result"] = action_result
+        # If booking was successful, include navigation info in main response for easy frontend access
+        if action_result.get("booking_confirmed") and action_result.get("navigation"):
+            response["navigation"] = action_result["navigation"]
+            response["event_details"] = action_result.get("event_details")
+            response["confirmation_message"] = action_result.get("confirmation_message")
+            response["should_navigate"] = True
     
     return response
 
