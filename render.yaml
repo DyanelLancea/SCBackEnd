@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: sc-backend
+    env: python
+    region: oregon  # Choose: oregon, singapore, frankfurt, ohio - pick closest to your users
+    plan: free  # Change to 'starter' for $7/mo production plan (no spin-down)
+    branch: main  # Change to 'master' if that's your default branch
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: SUPABASE_URL
+        sync: false  # Set manually in Render dashboard for security
+      - key: SUPABASE_KEY
+        sync: false  # Set manually in Render dashboard for security
+    healthCheckPath: /health
+
