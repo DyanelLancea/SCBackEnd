@@ -17,6 +17,13 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:3001
 # Get these from: https://console.twilio.com/
 TWILIO_ACCOUNT_SID=your-twilio-account-sid
 TWILIO_AUTH_TOKEN=your-twilio-auth-token
+TWILIO_PHONE_NUMBER=your-twilio-phone-number
+
+# SOS Emergency Configuration
+SOS_EMERGENCY_NUMBER=+6598631975
+
+# Supabase Service Role Key (optional, for admin operations)
+# SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # Optional: AI Services (for future features)
 # OPENAI_API_KEY=your-openai-api-key

@@ -25,12 +25,14 @@ venv/
 env/
 ENV/
 .venv
-.env
 
-# Environment Variables
+# Environment Variables (SENSITIVE - DO NOT COMMIT)
 .env
 .env.local
 .env.*.local
+*.env
+!.env.example
+!env_template.txt
 
 # IDE
 .vscode/

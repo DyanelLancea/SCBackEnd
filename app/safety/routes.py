@@ -109,35 +109,45 @@ def trigger_sos(sos_request: SOSRequest):
         emergency_message = " ".join(message_parts)
 
         # Make emergency call using Twilio
-        emergency_number = "+6598631975"
-        # Get Twilio phone number from environment or use default
-        from_number = os.getenv("TWILIO_PHONE_NUMBER", "+13099280903")  # Your verified Twilio number
+        # Get phone numbers from environment variables
+        emergency_number = os.getenv("SOS_EMERGENCY_NUMBER")
+        from_number = os.getenv("TWILIO_PHONE_NUMBER")  # Your verified Twilio number
+        
         call_sid = None
         call_error_details = None
+        call_status = None
         
-        try:
-            account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-            auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-            
-            if not account_sid or not auth_token:
-                call_status = "Twilio not configured - Missing Account SID or Auth Token. Please check your .env file."
-                call_error_details = "TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set in environment variables"
-            else:
-                client = Client(account_sid, auth_token)
+        # Check if emergency number is configured
+        if not emergency_number:
+            call_status = "Emergency number not configured. Please set SOS_EMERGENCY_NUMBER in your .env file."
+            call_error_details = "SOS_EMERGENCY_NUMBER must be set in environment variables"
+        elif not from_number:
+            call_status = "Twilio phone number not configured. Please set TWILIO_PHONE_NUMBER in your .env file."
+            call_error_details = "TWILIO_PHONE_NUMBER must be set in environment variables"
+        else:
+            try:
+                account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+                auth_token = os.getenv("TWILIO_AUTH_TOKEN")
                 
-                # Escape special characters for XML/TwiML
-                safe_message = emergency_message.replace("&", "and").replace("<", "less than").replace(">", "greater than")
-                
-                # Make the call with detailed automated message
-                call = client.calls.create(
-                    twiml=f'<Response><Say voice="alice" language="en-US">{safe_message}</Say><Pause length="2"/><Say voice="alice" language="en-US">Repeating alert details. {safe_message}</Say></Response>',
-                    to=emergency_number,
-                    from_=from_number
-                )
-                call_sid = call.sid
-                call_status = f"Emergency call successfully initiated to {emergency_number}. Call SID: {call.sid}"
-                
-        except Exception as call_error:
+                if not account_sid or not auth_token:
+                    call_status = "Twilio not configured - Missing Account SID or Auth Token. Please check your .env file."
+                    call_error_details = "TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set in environment variables"
+                else:
+                    client = Client(account_sid, auth_token)
+                    
+                    # Escape special characters for XML/TwiML
+                    safe_message = emergency_message.replace("&", "and").replace("<", "less than").replace(">", "greater than")
+                    
+                    # Make the call with detailed automated message
+                    call = client.calls.create(
+                        twiml=f'<Response><Say voice="alice" language="en-US">{safe_message}</Say><Pause length="2"/><Say voice="alice" language="en-US">Repeating alert details. {safe_message}</Say></Response>',
+                        to=emergency_number,
+                        from_=from_number
+                    )
+                    call_sid = call.sid
+                    call_status = f"Emergency call successfully initiated to {emergency_number}. Call SID: {call.sid}"
+                    
+            except Exception as call_error:
             error_str = str(call_error)
             call_status = f"Call failed: {error_str}"
             call_error_details = error_str
