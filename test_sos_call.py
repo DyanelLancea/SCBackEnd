@@ -16,7 +16,12 @@ Before running:
 import requests
 import json
 import os
+import sys
 from dotenv import load_dotenv
+
+# Fix Windows encoding issues with emojis
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
 
 load_dotenv()
 

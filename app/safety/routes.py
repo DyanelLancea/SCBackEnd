@@ -148,23 +148,23 @@ def trigger_sos(sos_request: SOSRequest):
                     call_status = f"Emergency call successfully initiated to {emergency_number}. Call SID: {call.sid}"
                     
             except Exception as call_error:
-            error_str = str(call_error)
-            call_status = f"Call failed: {error_str}"
-            call_error_details = error_str
-            
-            # Provide helpful error messages for common issues
-            if "not yet verified" in error_str.lower():
-                call_error_details = f"The phone number {from_number} is not verified in your Twilio account. Please verify it or use a different Twilio number."
-            elif "not authorized to call" in error_str.lower() or "geo-permissions" in error_str.lower():
-                call_error_details = f"Your Twilio account is not authorized to call {emergency_number}. Enable international calling permissions at: https://www.twilio.com/console/voice/calls/geo-permissions/low-risk"
-            elif "http error" in error_str.lower():
-                # Extract more details from Twilio error
-                if "21210" in error_str:
-                    call_error_details = f"The source phone number {from_number} is not verified. Verify it in Twilio Console or use your actual Twilio number."
-                elif "21215" in error_str:
-                    call_error_details = f"International calling not enabled for {emergency_number}. Enable at: https://www.twilio.com/console/voice/calls/geo-permissions/low-risk"
-                elif "21211" in error_str:
-                    call_error_details = f"Invalid phone number format: {emergency_number}. Check the number format."
+                error_str = str(call_error)
+                call_status = f"Call failed: {error_str}"
+                call_error_details = error_str
+                
+                # Provide helpful error messages for common issues
+                if "not yet verified" in error_str.lower():
+                    call_error_details = f"The phone number {from_number} is not verified in your Twilio account. Please verify it or use a different Twilio number."
+                elif "not authorized to call" in error_str.lower() or "geo-permissions" in error_str.lower():
+                    call_error_details = f"Your Twilio account is not authorized to call {emergency_number}. Enable international calling permissions at: https://www.twilio.com/console/voice/calls/geo-permissions/low-risk"
+                elif "http error" in error_str.lower():
+                    # Extract more details from Twilio error
+                    if "21210" in error_str:
+                        call_error_details = f"The source phone number {from_number} is not verified. Verify it in Twilio Console or use your actual Twilio number."
+                    elif "21215" in error_str:
+                        call_error_details = f"International calling not enabled for {emergency_number}. Enable at: https://www.twilio.com/console/voice/calls/geo-permissions/low-risk"
+                    elif "21211" in error_str:
+                        call_error_details = f"Invalid phone number format: {emergency_number}. Check the number format."
         
         # Find linked caregivers
         caregivers_response = (
