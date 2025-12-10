@@ -18,6 +18,9 @@ python-dotenv==1.0.1
 # HTTP requests
 requests==2.32.3
 
+# Twilio - Phone call and SMS services
+twilio==9.8.8
+
 # PostgreSQL adapter (for direct DB access if needed)
 psycopg2-binary==2.9.10
 
