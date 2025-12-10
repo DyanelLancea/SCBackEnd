@@ -74,12 +74,20 @@ python -m app.main
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## 📚 API Documentation
+## 📚 Documentation
 
+### API Documentation
 Once the server is running, visit:
 - **Interactive API Docs**: http://localhost:8000/docs
 - **Alternative Docs**: http://localhost:8000/redoc
 - **Root Endpoint**: http://localhost:8000/
+
+### Complete Guides
+- **[Setup Guide](z_Docs/SETUP_GUIDE.md)** - Detailed setup instructions
+- **[API Reference](z_Docs/API_REFERENCE.md)** - Complete API documentation
+- **[Frontend Integration](z_Docs/FRONTEND_INTEGRATION.md)** - Connect your frontend
+- **[Render Deployment](z_Docs/RENDER_DEPLOYMENT.md)** - Deploy to production
+- **[Project Summary](z_Docs/PROJECT_SUMMARY.md)** - Project overview
 
 ## 🔗 API Endpoints
 
@@ -163,9 +171,19 @@ SCBackEnd/
 │   │   └── routes.py          # Orchestrator endpoints
 │   └── shared/
 │       └── supabase.py        # Supabase connection
+├── z_Docs/                    # Complete documentation
+│   ├── API_REFERENCE.md       # Full API docs
+│   ├── FRONTEND_INTEGRATION.md # Frontend guide
+│   ├── RENDER_DEPLOYMENT.md   # Deployment guide
+│   ├── SETUP_GUIDE.md         # Setup instructions
+│   └── PROJECT_SUMMARY.md     # Project overview
 ├── requirements.txt           # Python dependencies
+├── render.yaml                # Render deployment config
+├── build.sh                   # Build script
 ├── supabase_schema.sql        # Database schema
 ├── env_template.txt           # Environment variables template
+├── DEPLOYMENT_CHECKLIST.md    # Deployment checklist
+├── QUICK_REFERENCE.md         # One-page quick reference
 ├── README.md                  # This file
 └── .gitignore                # Git ignore rules
 ```
@@ -219,14 +237,15 @@ See `requirements.txt` for full list.
 
 ## 📞 Frontend Integration
 
-This backend is designed to be consumed by a frontend application. Here's how to connect:
+This backend is designed to be consumed by a frontend application.
 
-### Frontend Setup
-1. Set your API base URL: `http://localhost:8000`
-2. Make HTTP requests to the endpoints
-3. Handle responses (all return JSON)
+**📖 See [FRONTEND_INTEGRATION.md](z_Docs/FRONTEND_INTEGRATION.md) for complete integration guide** including:
+- API service setup (JavaScript/TypeScript)
+- React hooks examples
+- Error handling patterns
+- Type definitions
 
-### Example (JavaScript/React)
+### Quick Example (JavaScript/React)
 ```javascript
 // Get events
 const response = await fetch('http://localhost:8000/api/events/list');
@@ -247,6 +266,24 @@ const response = await fetch('http://localhost:8000/api/events/create', {
   body: JSON.stringify(newEvent)
 });
 ```
+
+## 🚀 Production Deployment
+
+### Deploy to Render (Recommended)
+
+**📖 See [RENDER_DEPLOYMENT.md](z_Docs/RENDER_DEPLOYMENT.md) for complete deployment guide**
+
+Quick steps:
+1. Push code to GitHub
+2. Connect to Render.com
+3. Add environment variables
+4. Deploy! 🎉
+
+Your backend will be live at: `https://your-service.onrender.com`
+
+**Deployment files included**:
+- `render.yaml` - Render configuration
+- `build.sh` - Build script
 
 ## 🐛 Troubleshooting
 

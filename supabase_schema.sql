@@ -29,6 +29,22 @@ CREATE TABLE IF NOT EXISTS event_registrations (
     UNIQUE(event_id, user_id)
 );
 
+-- Remove foreign key constraint on user_id if it exists (allows flexibility)
+-- This is useful when not using Supabase Auth or when using test UUIDs
+DO $$ 
+BEGIN
+    -- Drop the foreign key constraint if it exists
+    IF EXISTS (
+        SELECT 1 
+        FROM information_schema.table_constraints 
+        WHERE constraint_name = 'event_registrations_user_id_fkey'
+        AND table_name = 'event_registrations'
+    ) THEN
+        ALTER TABLE event_registrations 
+        DROP CONSTRAINT event_registrations_user_id_fkey;
+    END IF;
+END $$;
+
 -- ==================== INDEXES ====================
 
 -- Create indexes for better query performance
