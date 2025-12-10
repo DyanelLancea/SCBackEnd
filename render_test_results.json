@@ -1,0 +1,100 @@
+{
+  "base_url": "https://scbackend-qfh6.onrender.com",
+  "tests": [
+    {
+      "name": "Health Check",
+      "url": "https://scbackend-qfh6.onrender.com/health",
+      "method": "GET",
+      "status": 200,
+      "expected": 200,
+      "success": true,
+      "response": {
+        "status": "healthy",
+        "message": "API is running",
+        "database": "connected",
+        "timestamp": "2025-12-10"
+      }
+    },
+    {
+      "name": "Root",
+      "url": "https://scbackend-qfh6.onrender.com/",
+      "method": "GET",
+      "status": 200,
+      "expected": 200,
+      "success": true,
+      "response": {
+        "message": "Welcome to SC Backend API! \ud83c\udf89",
+        "status": "running",
+        "version": "2.0.0",
+        "documentation": {
+          "interactive": "/docs",
+          "alternative": "/redoc"
+        },
+        "modules": {
+          "events": "/api/events - Event creation and management",
+          "wellness": "/api/wellness - Social engagement and wellness",
+          "safety": "/api/safety - Safety and emergency response",
+          "orchestrator": "/api/orchestrator - Main coordinator"
+        },
+        "database": "Supabase (PostgreSQL)"
+      }
+    },
+    {
+      "name": "Orchestrator Info",
+      "url": "https://scbackend-qfh6.onrender.com/api/orchestrator/",
+      "method": "GET",
+      "status": 200,
+      "expected": 200,
+      "success": true,
+      "response": {
+        "module": "Orchestrator",
+        "description": "Main coordinator and request routing agent",
+        "capabilities": [
+          "Natural language understanding",
+          "Intent classification",
+          "Request routing to specialized modules",
+          "Conversation management"
+        ],
+        "endpoints": {
+          "message": "/api/orchestrator/message",
+          "voice": "/api/orchestrator/voice",
+          "history": "/api/orchestrator/history/{user_id}"
+        },
+        "status": "ready"
+      }
+    },
+    {
+      "name": "Test Route",
+      "url": "https://scbackend-qfh6.onrender.com/api/orchestrator/test-route",
+      "method": "GET",
+      "status": 200,
+      "expected": 200,
+      "success": true,
+      "response": {
+        "success": true,
+        "message": "Orchestrator routes are working!",
+        "endpoint": "/api/orchestrator/test-route"
+      }
+    },
+    {
+      "name": "Process Singlish",
+      "url": "https://scbackend-qfh6.onrender.com/api/orchestrator/process-singlish",
+      "method": "POST",
+      "status": 500,
+      "expected": 200,
+      "success": false,
+      "response": {
+        "detail": "Error processing Singlish: GPT translation failed: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-********************************************************************************************************************************************************ZwIA. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401}"
+      }
+    },
+    {
+      "name": "API Docs",
+      "url": "https://scbackend-qfh6.onrender.com/docs",
+      "method": "GET",
+      "status": 200,
+      "expected": 200,
+      "success": true,
+      "response": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n    <link type=\"text/css\" rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css\">\n    <link rel=\"shortcut icon\" href=\"https://"
+    }
+  ]
+}
