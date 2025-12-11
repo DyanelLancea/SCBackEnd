@@ -129,28 +129,68 @@ async def update_location(location: LocationRequest):
         )
 
 @router.get("/location/{user_id}")
-def get_current_location(
-    user_id: str,
-    lat: Optional[float] = Query(None),
-    lng: Optional[float] = Query(None)
-):
-    """Get current device location"""
-    if lat is None or lng is None:
+async def get_current_location(user_id: str):
+    """Get the most recent location for a user from location_logs table"""
+    try:
+        if not user_id:
+            raise HTTPException(status_code=400, detail="user_id is required")
+
+        # Get Supabase client
+        supabase = get_supabase_client()
+
+        # Get most recent location from database
+        location_response = (
+            supabase.table("location_logs")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("timestamp", desc=True)  # Get most recent first
+            .limit(1)  # Only get the latest location entry
+            .execute()
+        )
+        
+        current_location = location_response.data[0] if location_response.data else None
+
+        if not current_location:
+            # Return error response when no location found
+            raise HTTPException(
+                status_code=404,
+                detail="No location data found for this user"
+            )
+
+        # Get timestamp and format it properly
+        timestamp = current_location.get("timestamp")
+        if timestamp:
+            # Convert to string if needed
+            if not isinstance(timestamp, str):
+                if hasattr(timestamp, 'isoformat'):
+                    timestamp = timestamp.isoformat()
+                else:
+                    timestamp = str(timestamp)
+            
+            # Ensure timestamp ends with Z (UTC indicator) if it doesn't already
+            if not timestamp.endswith('Z') and '+' not in timestamp:
+                if timestamp.count('-') > 2:
+                    # Has timezone offset like 2025-12-12T10:30:00-05:00
+                    parts = timestamp.rsplit('-', 2)
+                    if len(parts) == 3:
+                        timestamp = parts[0] + '-' + parts[1] + 'Z'
+                    else:
+                        timestamp = timestamp + 'Z'
+                else:
+                    timestamp = timestamp + 'Z'
+
+        # Return location in the expected format
         return {
-            "success": False,
-            "message": "Please provide current location",
-            "location_display": "Location access required"
+            "success": True,
+            "location": {
+                "latitude": current_location.get("latitude"),
+                "longitude": current_location.get("longitude"),
+                "last_updated": timestamp
+            }
         }
-    
-    return {
-        "success": True,
-        "user_id": user_id,
-        "current_location": {
-            "latitude": lat,
-            "longitude": lng,
-            "timestamp": datetime.utcnow().isoformat()
-        },
-        "location_display": "Current location",
-        "timestamp": datetime.utcnow().isoformat(),
-        "time_since_update": "Just now"
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get current location: {str(e)}"
+        )
