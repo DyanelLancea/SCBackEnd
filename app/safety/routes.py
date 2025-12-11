@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import os
 from twilio.rest import Client
@@ -292,6 +292,13 @@ def get_current_location(user_id: str):
     """
     Get the most recent location for a user (caregiver or elderly) from location_logs table.
     Returns the user's current location from the database, not a hardcoded value.
+    
+    This endpoint works for:
+    - Elderly users viewing their own location
+    - Caregivers viewing an elderly person's location (pass elderly user_id)
+    - Any user viewing their own location
+    
+    The location is always fetched from the database, never hardcoded.
     """
     try:
         if not user_id:
@@ -300,7 +307,7 @@ def get_current_location(user_id: str):
         # Get Supabase client
         supabase = get_supabase_client()
 
-        # Get most recent location
+        # Get most recent location from database (never hardcoded)
         location_response = (
             supabase.table("location_logs")
             .select("*")
@@ -318,18 +325,49 @@ def get_current_location(user_id: str):
                 "message": "No location data found for this user",
                 "user_id": user_id,
                 "current_location": None,
-                "location_display": None,
+                "location_display": "Location not available",
+                "latitude": None,
+                "longitude": None,
+                "address": None,
+                "timestamp": None,
             }
 
         # Format location display string - prioritize address, fallback to coordinates
         location_display = None
         if current_location.get("address"):
+            # Use address from database if available
             location_display = current_location.get("address")
         elif current_location.get("latitude") and current_location.get("longitude"):
             # Format coordinates as readable string if no address available
             lat = current_location.get("latitude")
             lon = current_location.get("longitude")
-            location_display = f"{lat:.6f}, {lon:.6f}"
+            location_display = f"Lat: {lat:.6f}, Lon: {lon:.6f}"
+        else:
+            location_display = "Location not available"
+
+        # Calculate time since last update
+        time_since_update = None
+        if current_location.get("timestamp"):
+            try:
+                timestamp_str = current_location.get("timestamp")
+                if isinstance(timestamp_str, str):
+                    # Parse ISO format timestamp
+                    if timestamp_str.endswith('Z'):
+                        timestamp_str = timestamp_str[:-1] + '+00:00'
+                    location_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    if location_time.tzinfo is None:
+                        location_time = location_time.replace(tzinfo=timezone.utc)
+                    now = datetime.now(timezone.utc)
+                    diff = now - location_time
+                    minutes_ago = int(diff.total_seconds() / 60)
+                    if minutes_ago < 1:
+                        time_since_update = "Just now"
+                    elif minutes_ago == 1:
+                        time_since_update = "1 minute ago"
+                    else:
+                        time_since_update = f"{minutes_ago} minutes ago"
+            except Exception:
+                time_since_update = None
 
         return {
             "success": True,
@@ -338,8 +376,9 @@ def get_current_location(user_id: str):
             "latitude": current_location.get("latitude"),
             "longitude": current_location.get("longitude"),
             "address": current_location.get("address"),
-            "location_display": location_display,  # Readable location string for frontend
+            "location_display": location_display,  # Readable location string for frontend (never hardcoded)
             "timestamp": current_location.get("timestamp"),
+            "time_since_update": time_since_update,  # Human-readable time (e.g., "2 minutes ago")
         }
     except HTTPException:
         raise
