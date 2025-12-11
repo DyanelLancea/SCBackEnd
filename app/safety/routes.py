@@ -286,6 +286,69 @@ def update_location(location: LocationRequest):
         )
 
 
+# Get Current Location Endpoint
+@router.get("/location/{user_id}")
+def get_current_location(user_id: str):
+    """
+    Get the most recent location for a user (caregiver or elderly) from location_logs table.
+    Returns the user's current location from the database, not a hardcoded value.
+    """
+    try:
+        if not user_id:
+            raise HTTPException(status_code=400, detail="user_id is required")
+
+        # Get Supabase client
+        supabase = get_supabase_client()
+
+        # Get most recent location
+        location_response = (
+            supabase.table("location_logs")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("timestamp", desc=True)
+            .limit(1)
+            .execute()
+        )
+        
+        current_location = location_response.data[0] if location_response.data else None
+
+        if not current_location:
+            return {
+                "success": True,
+                "message": "No location data found for this user",
+                "user_id": user_id,
+                "current_location": None,
+                "location_display": None,
+            }
+
+        # Format location display string - prioritize address, fallback to coordinates
+        location_display = None
+        if current_location.get("address"):
+            location_display = current_location.get("address")
+        elif current_location.get("latitude") and current_location.get("longitude"):
+            # Format coordinates as readable string if no address available
+            lat = current_location.get("latitude")
+            lon = current_location.get("longitude")
+            location_display = f"{lat:.6f}, {lon:.6f}"
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            "current_location": current_location,
+            "latitude": current_location.get("latitude"),
+            "longitude": current_location.get("longitude"),
+            "address": current_location.get("address"),
+            "location_display": location_display,  # Readable location string for frontend
+            "timestamp": current_location.get("timestamp"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get current location: {str(e)}"
+        )
+
+
 # Status Endpoint
 @router.get("/status/{user_id}")
 def get_safety_status(user_id: str):
