@@ -333,14 +333,29 @@ async def update_location(location: LocationRequest):
                 # Fallback: format coordinates as readable string
                 address = f"{location.latitude:.6f}, {location.longitude:.6f}"
 
+        # Build location data - only include address if column exists
         location_data = {
             "user_id": location.user_id,
             "latitude": location.latitude,
             "longitude": location.longitude,
-            "address": address,  # Store the readable address
             "timestamp": datetime.utcnow().isoformat(),
         }
-        response = supabase.table("location_logs").insert(location_data).execute()
+        
+        # Try to include address if the column exists (some databases may not have it)
+        # We'll try to insert it, and if it fails, we'll store it separately or skip it
+        try:
+            location_data["address"] = address
+            response = supabase.table("location_logs").insert(location_data).execute()
+        except Exception as e:
+            # If address column doesn't exist, insert without it
+            error_str = str(e)
+            if "address" in error_str.lower() or "column" in error_str.lower():
+                # Remove address and try again
+                location_data.pop("address", None)
+                response = supabase.table("location_logs").insert(location_data).execute()
+                # Store address in a separate way or just return it in the response
+            else:
+                raise
 
         return {
             "success": True,
@@ -358,7 +373,7 @@ async def update_location(location: LocationRequest):
 
 # Get Current Location Endpoint
 @router.get("/location/{user_id}")
-def get_current_location(
+async def get_current_location(
     user_id: str,
     role: Optional[str] = Query(None, description="User role: 'caregiver' or 'elderly'. If 'caregiver', returns linked elderly user's location.")
 ):
@@ -479,16 +494,29 @@ def get_current_location(
                 "timestamp": None,
             }
 
-        # Format location display string - prioritize address, fallback to coordinates
+        # Format location display string - prioritize address, fallback to reverse geocoding, then coordinates
         location_display = None
-        if current_location.get("address"):
+        address = current_location.get("address")
+        
+        if address:
             # Use address from database if available
-            location_display = current_location.get("address")
+            location_display = address
         elif current_location.get("latitude") and current_location.get("longitude"):
-            # Format coordinates as readable string if no address available
+            # If no address stored, perform reverse geocoding on-the-fly to get readable address
             lat = current_location.get("latitude")
             lon = current_location.get("longitude")
-            location_display = f"Lat: {lat:.6f}, Lon: {lon:.6f}"
+            try:
+                # Try to get address from reverse geocoding (async)
+                address = await reverse_geocode(lat, lon)
+                if address:
+                    location_display = address
+                else:
+                    # Fallback: format coordinates as readable string
+                    location_display = f"Lat: {lat:.6f}, Lon: {lon:.6f}"
+            except Exception as e:
+                # If reverse geocoding fails, use coordinates
+                print(f"Reverse geocoding failed in GET endpoint: {e}")
+                location_display = f"Lat: {lat:.6f}, Lon: {lon:.6f}"
         else:
             location_display = "Location not available"
 
