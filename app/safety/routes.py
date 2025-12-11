@@ -1,4 +1,4 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional
 import os
 import httpx
@@ -155,43 +155,28 @@ def trigger_sos(sos_request: SOSRequest):
             "status": "active",
         }
         
-        try:
-            sos_response = supabase.table("sos_logs").insert(sos_data).execute()
-        except Exception as sos_insert_error:
-            print(f"Error inserting SOS log: {sos_insert_error}")
-            # Continue anyway - we can still make the call even if logging fails
-            sos_response = type('obj', (object,), {'data': [sos_data]})()
+        sos_response = supabase.table("sos_logs").insert(sos_data).execute()
 
         # Get latest location data if available
-        try:
-            location_response = (
-                supabase.table("location_logs")
-                .select("*")
-                .eq("user_id", sos_request.user_id)
-                .order("timestamp", desc=True)
-                .limit(1)
-                .execute()
-            )
-            latest_location = location_response.data[0] if location_response.data else None
-        except Exception as loc_error:
-            # If location query fails, continue without location data
-            print(f"Warning: Could not fetch location data: {loc_error}")
-            latest_location = None
+        location_response = (
+            supabase.table("location_logs")
+            .select("*")
+            .eq("user_id", sos_request.user_id)
+            .order("timestamp", desc=True)
+            .limit(1)
+            .execute()
+        )
+        latest_location = location_response.data[0] if location_response.data else None
 
         # Format current time in Singapore timezone (SGT - UTC+8)
-        try:
-            if ZoneInfo:
-                # Use zoneinfo for proper timezone handling
-                singapore_tz = ZoneInfo("Asia/Singapore")
-                current_time = datetime.now(singapore_tz)
-                time_str = current_time.strftime("%B %d, %Y at %I:%M %p SGT")
-            else:
-                # Fallback: manually add 8 hours for Singapore time (UTC+8)
-                current_time = datetime.utcnow() + timedelta(hours=8)
-                time_str = current_time.strftime("%B %d, %Y at %I:%M %p SGT")
-        except Exception as tz_error:
-            # If timezone conversion fails, fallback to UTC+8 manually
-            print(f"Timezone conversion error: {tz_error}")
+        if ZoneInfo:
+            # Use zoneinfo for proper timezone handling
+            singapore_tz = ZoneInfo("Asia/Singapore")
+            current_time = datetime.now(singapore_tz)
+            time_str = current_time.strftime("%B %d, %Y at %I:%M %p SGT")
+        else:
+            # Fallback: manually add 8 hours for Singapore time (UTC+8)
+            from datetime import timedelta
             current_time = datetime.utcnow() + timedelta(hours=8)
             time_str = current_time.strftime("%B %d, %Y at %I:%M %p SGT")
 
@@ -356,10 +341,6 @@ def trigger_sos(sos_request: SOSRequest):
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        error_traceback = traceback.format_exc()
-        print(f"Error in trigger_sos: {str(e)}")
-        print(f"Traceback: {error_traceback}")
         raise HTTPException(status_code=500, detail=f"Failed to trigger SOS: {str(e)}")
 
 
