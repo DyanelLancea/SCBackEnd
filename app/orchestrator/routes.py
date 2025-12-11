@@ -895,6 +895,13 @@ async def process_singlish(request: SinglishProcessRequest):
     }
     """
     try:
+        # Validate user_id
+        if not request.user_id:
+            raise HTTPException(
+                status_code=400,
+                detail="user_id is required"
+            )
+        
         # Validate input
         if not request.audio and not request.transcript:
             raise HTTPException(
@@ -906,8 +913,25 @@ async def process_singlish(request: SinglishProcessRequest):
         transcript = None
         
         if request.audio:
-            # Decode base64 audio and process with Whisper
-            transcript = await process_audio_with_whisper(request.audio)
+            # Check if OpenAI is available before attempting transcription
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Audio transcription requires OPENAI_API_KEY. Please provide 'transcript' field instead, or configure OPENAI_API_KEY in backend environment variables."
+                )
+            
+            try:
+                # Decode base64 audio and process with Whisper
+                transcript = await process_audio_with_whisper(request.audio)
+            except HTTPException:
+                raise
+            except Exception as e:
+                error_msg = str(e)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to transcribe audio: {error_msg}. Please provide 'transcript' field instead."
+                )
         else:
             # Use provided transcript
             transcript = request.transcript
@@ -919,7 +943,22 @@ async def process_singlish(request: SinglishProcessRequest):
             )
         
         # Step 2: Process with GPT for translation and analysis
-        result = await translate_singlish_to_english(transcript)
+        try:
+            result = await translate_singlish_to_english(transcript)
+        except HTTPException:
+            raise
+        except Exception as e:
+            error_msg = str(e)
+            # Check if it's an OpenAI configuration issue
+            if "OPENAI_API_KEY" in error_msg or "OpenAI" in error_msg:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Translation requires OpenAI configuration: {error_msg}"
+                )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error processing Singlish translation: {error_msg}"
+            )
         
         return {
             "success": True,
@@ -930,9 +969,14 @@ async def process_singlish(request: SinglishProcessRequest):
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        error_msg = str(e)
+        error_traceback = traceback.format_exc()
+        print(f"Unexpected error in process_singlish: {error_msg}")
+        print(f"Traceback: {error_traceback}")
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing Singlish: {str(e)}"
+            detail=f"Error processing Singlish: {error_msg}"
         )
 
 
