@@ -189,14 +189,48 @@ def orchestrator_info():
 def detect_emergency_intent(text: str) -> bool:
     """
     Detect if message contains emergency intent keywords
+    Context-aware: "help" alone is not enough - must be in emergency context
     """
     message_lower = text.lower()
-    emergency_keywords = [
-        "emergency", "sos", "help", "urgent", "danger", "accident",
-        "injured", "hurt", "pain", "need help", "call help", "assistance",
-        "rescue", "ambulance", "hospital", "911", "999"
+    
+    # Strong emergency indicators (always emergency)
+    strong_emergency_keywords = [
+        "emergency", "sos", "urgent", "danger", "accident",
+        "injured", "hurt", "pain", "rescue", "ambulance", 
+        "hospital", "911", "999", "call help", "need help immediately"
     ]
-    return any(keyword in message_lower for keyword in emergency_keywords)
+    
+    # Check for strong emergency keywords first
+    if any(keyword in message_lower for keyword in strong_emergency_keywords):
+        return True
+    
+    # "help" is only emergency if it's NOT in the context of event operations
+    # Check if "help" appears with event-related words (not emergency)
+    event_operation_words = [
+        "event", "register", "cancel", "remove", "book", "unregister",
+        "join", "leave", "withdraw", "delete", "update", "change"
+    ]
+    
+    has_help = "help" in message_lower
+    has_event_operation = any(word in message_lower for word in event_operation_words)
+    
+    # If "help" appears with event operations, it's NOT an emergency
+    if has_help and has_event_operation:
+        return False
+    
+    # "help" alone or with emergency context = emergency
+    if has_help:
+        # Additional check: is it clearly about events? If so, not emergency
+        if any(word in message_lower for word in ["event", "booking", "registration"]):
+            return False
+        return True
+    
+    # Other emergency indicators
+    emergency_phrases = [
+        "need assistance", "call for help", "immediate help",
+        "help me now", "help please emergency"
+    ]
+    return any(phrase in message_lower for phrase in emergency_phrases)
 
 
 def validate_and_get_uuid(value: Any) -> Optional[str]:
@@ -253,9 +287,12 @@ def find_event_by_name_or_id(events: list, event_name: Optional[str] = None, eve
     normalized_search = re.sub(r'[\s\-_]+', ' ', event_name.lower().strip())
     normalized_search = re.sub(r'[^\w\s]', '', normalized_search)
     # Remove common articles and prepositions at the start
-    normalized_search = re.sub(r'^(the|a|an)\s+', '', normalized_search, flags=re.IGNORECASE).strip()
+    normalized_search = re.sub(r'^(the|a|an|my)\s+', '', normalized_search, flags=re.IGNORECASE).strip()
+    # Remove common event-related words that aren't part of the actual event name
+    # These words might appear in user's phrase but not in event titles
+    normalized_search = re.sub(r'\b(event|class|session|activity|lesson|workshop|meeting|gathering|registration)\b', '', normalized_search, flags=re.IGNORECASE).strip()
     # Filter out short words and common stop words
-    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'my'}
     search_words = [w for w in normalized_search.split() if len(w) > 2 and w not in stop_words]
     
     if not search_words:
@@ -309,9 +346,30 @@ def find_event_by_name_or_id(events: list, event_name: Optional[str] = None, eve
             best_score = score
             best_match = event
     
-    # Only return match if score is above threshold (60% match)
-    if best_match and best_score >= 0.6:
+    # Only return match if score is above threshold
+    # Lower threshold (0.5) for better matching of partial names like "swimming class" → "Swimming"
+    # But require at least one word match
+    if best_match and best_score >= 0.5:
         return best_match
+    
+    # If no match above threshold, try a more lenient match: check if any search word is in the title
+    # This handles cases like "swimming class" → "Swimming" where "swimming" matches
+    if search_words and not best_match:
+        for event in events:
+            event_uuid = validate_and_get_uuid(event.get("id"))
+            if not event_uuid:
+                continue
+            
+            event_title = event.get("title", "").strip()
+            if not event_title:
+                continue
+            
+            normalized_title = event_title.lower()
+            # Check if any search word is in the title (simple substring match)
+            for search_word in search_words:
+                if search_word in normalized_title:
+                    # Found a match - return it
+                    return event
     
     return None
 
@@ -362,30 +420,40 @@ User message: "{user_message}"
 User ID: {user_id}{events_context}
 
 Analyze the user's intent and extract relevant information. Possible intents:
-1. "emergency" - User needs emergency help/SOS (keywords: help, emergency, sos, urgent, danger)
+1. "emergency" - User needs emergency help/SOS (CRITICAL: Only use this for actual emergencies)
+   - Keywords: "emergency", "sos", "urgent", "danger", "accident", "injured", "hurt", "pain", "rescue", "ambulance", "hospital", "911", "999"
+   - "help" alone is NOT emergency - only use "emergency" if "help" appears with emergency context (e.g., "help emergency", "need help now", "help me I'm hurt")
+   - If user says "help me [do something with events]" → NOT emergency, use the appropriate event intent
+   - Examples of emergency: "Help! Emergency!", "I need help, I'm hurt", "SOS", "Call 911"
+   - Examples of NOT emergency: "Can you help me cancel the event?", "Help me register", "Please help me remove this event"
 2. "book_event" or "register_event" - User wants to register/book for a SPECIFIC event (keywords: book, register, join, sign up, enroll, attend)
 3. "list_events" - User wants to see available events (keywords: list, show, find, what events, available events, upcoming)
 4. "get_event" - User wants details about a SPECIFIC event (keywords: details, info, information, tell me about, what is)
-5. "cancel_event" or "unregister_event" - User wants to cancel/unregister from a SPECIFIC event (keywords: cancel, unregister, remove, leave, withdraw)
+5. "cancel_event" or "unregister_event" - User wants to cancel/unregister from a SPECIFIC event (keywords: cancel, unregister, remove, leave, withdraw, delete)
+   - IMPORTANT: "help me remove/cancel" is cancel_event, NOT emergency
 6. "update_location" - User wants to update their location
 7. "general" - General conversation, questions, or unclear intent (use this for questions that don't match other intents)
 
 CRITICAL RULES for event-related intents (book_event, get_event, cancel_event, unregister_event):
 1. ALWAYS extract the SPECIFIC event name the user mentioned, even if partial
-2. event_name: Extract the event name/title from the user's message, REMOVING articles like "the", "a", "an"
+2. event_name: Extract the event name/title from the user's message, REMOVING articles and generic words
    - If user says "join the workout" → extract "workout" (NOT "the workout")
    - If user says "book pickleball" → extract "pickleball"
-   - If user says "register for yoga class" → extract "yoga class"
-   - Extract the core event name without articles, prepositions, or filler words
+   - If user says "register for yoga class" → extract "yoga" (remove "class" if event title is just "Yoga")
+   - If user says "cancel my swimming class event" → extract "swimming" (remove "class" and "event")
+   - REMOVE generic words: "event", "class", "session", "activity", "lesson", "workshop" unless they're part of the actual event name
+   - REMOVE articles: "the", "a", "an", "my"
+   - Extract the CORE event name - the unique identifier word(s)
 3. event_id: ONLY use the exact UUID from the available events list if you can MATCH the event_name to a specific event in the list. Otherwise use null.
 4. Match event names intelligently:
    - "pickleball" should match "Pickleball Tournament"
-   - "yoga class" should match "Yoga Class for Seniors"
+   - "yoga" should match "Yoga Class" or "Yoga"
+   - "swimming" should match "Swimming" (even if user says "swimming class")
    - "workout" should match "Workout" or "Morning Workout Session"
    - Use partial matching - if user says part of the event name, extract that part
 5. DO NOT make up UUIDs or use numbers like "1" - only use actual UUIDs from the events list
 6. If user mentions multiple events or is unclear, set event_id to null but still extract event_name
-7. IMPORTANT: When extracting event_name, remove leading articles ("the", "a", "an") and common prepositions
+7. IMPORTANT: When extracting event_name, remove leading articles ("the", "a", "an", "my") and generic event words ("event", "class", "session")
 
 For "general" intent:
 - Use for questions like "what is this app?", "how do I use this?", "what can you do?"
@@ -486,15 +554,19 @@ Respond ONLY with valid JSON (no markdown):
         pass
     
     # Fallback to simple keyword detection (used when GROQ is not available or fails)
+    # IMPORTANT: Check cancel_event BEFORE emergency to avoid false positives
     message_lower = user_message.lower()
-    if detect_emergency_intent(user_message):
-        return {"intent": "emergency", "confidence": 0.8}
+    
+    # Check for cancel/unregister FIRST (before emergency check)
+    if any(word in message_lower for word in ["cancel", "unregister", "remove", "leave", "withdraw", "delete"]):
+        return {"intent": "cancel_event", "confidence": 0.7}
     elif any(word in message_lower for word in ["book", "register", "join", "sign up", "enroll"]):
         return {"intent": "book_event", "confidence": 0.7}
     elif any(word in message_lower for word in ["list", "show", "find", "what events", "available"]):
         return {"intent": "list_events", "confidence": 0.7}
-    elif any(word in message_lower for word in ["cancel", "unregister", "remove", "leave"]):
-        return {"intent": "cancel_event", "confidence": 0.7}
+    elif detect_emergency_intent(user_message):
+        # Only check emergency after we've ruled out event operations
+        return {"intent": "emergency", "confidence": 0.8}
     else:
         return {"intent": "general", "confidence": 0.5}
 
@@ -804,6 +876,19 @@ async def process_message(request: TextMessage):
                 event_name = intent_data.get("event_name", "").strip() if intent_data.get("event_name") else ""
                 potential_event_id = intent_data.get("event_id")
                 
+                # Debug logging
+                print(f"DEBUG [CANCEL]: Intent detection extracted - event_name: '{event_name}', event_id: '{potential_event_id}'")
+                
+                # Clean up event_name: remove common event-related words that aren't part of the actual event name
+                if event_name:
+                    # Remove common event-related words that might be in user's phrase but not in event title
+                    event_name_cleaned = re.sub(r'\b(event|class|session|activity|lesson|workshop|meeting|gathering)\b', '', event_name, flags=re.IGNORECASE).strip()
+                    # Remove articles
+                    event_name_cleaned = re.sub(r'^(the|a|an|my)\s+', '', event_name_cleaned, flags=re.IGNORECASE).strip()
+                    if event_name_cleaned and event_name_cleaned != event_name:
+                        print(f"DEBUG [CANCEL]: Cleaned event_name from '{event_name}' to '{event_name_cleaned}'")
+                        event_name = event_name_cleaned
+                
                 # Get events to search (we'll check if user is registered)
                 events_resp = await client.get(f"{base_url}/api/events/list?limit=50")
                 if events_resp.status_code == 200:
@@ -816,12 +901,21 @@ async def process_message(request: TextMessage):
                         if event_id_check and uuid_pattern_filter.match(str(event_id_check)) and len(str(event_id_check)) == 36:
                             events.append(event)
                     
+                    print(f"DEBUG [CANCEL]: Found {len(events)} valid events in database")
+                    if events:
+                        print(f"DEBUG [CANCEL]: Event titles: {[e.get('title') for e in events[:5]]}")
+                    
                     # Use improved matching function to find the specific event
                     matched_event = find_event_by_name_or_id(
                         events=events,
                         event_name=event_name if event_name else None,
                         event_id=potential_event_id if potential_event_id else None
                     )
+                    
+                    if matched_event:
+                        print(f"DEBUG [CANCEL]: Matched event: '{matched_event.get('title')}' (ID: {matched_event.get('id')[:8]}...)")
+                    else:
+                        print(f"DEBUG [CANCEL]: No event matched for event_name='{event_name}', event_id='{potential_event_id}'")
                     
                     if matched_event:
                         event_id_str = validate_and_get_uuid(matched_event.get("id"))
