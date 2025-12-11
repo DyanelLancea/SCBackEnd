@@ -252,7 +252,11 @@ def find_event_by_name_or_id(events: list, event_name: Optional[str] = None, eve
     # Normalize search name (remove extra spaces, lowercase, remove punctuation)
     normalized_search = re.sub(r'[\s\-_]+', ' ', event_name.lower().strip())
     normalized_search = re.sub(r'[^\w\s]', '', normalized_search)
-    search_words = [w for w in normalized_search.split() if len(w) > 2]  # Filter out short words
+    # Remove common articles and prepositions at the start
+    normalized_search = re.sub(r'^(the|a|an)\s+', '', normalized_search, flags=re.IGNORECASE).strip()
+    # Filter out short words and common stop words
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+    search_words = [w for w in normalized_search.split() if len(w) > 2 and w not in stop_words]
     
     if not search_words:
         return None
@@ -368,15 +372,20 @@ Analyze the user's intent and extract relevant information. Possible intents:
 
 CRITICAL RULES for event-related intents (book_event, get_event, cancel_event, unregister_event):
 1. ALWAYS extract the SPECIFIC event name the user mentioned, even if partial
-2. event_name: Extract the EXACT event name/title from the user's message (e.g., if user says "pickleball", extract "pickleball" or "pickleball tournament")
+2. event_name: Extract the event name/title from the user's message, REMOVING articles like "the", "a", "an"
+   - If user says "join the workout" → extract "workout" (NOT "the workout")
+   - If user says "book pickleball" → extract "pickleball"
+   - If user says "register for yoga class" → extract "yoga class"
+   - Extract the core event name without articles, prepositions, or filler words
 3. event_id: ONLY use the exact UUID from the available events list if you can MATCH the event_name to a specific event in the list. Otherwise use null.
 4. Match event names intelligently:
    - "pickleball" should match "Pickleball Tournament"
    - "yoga class" should match "Yoga Class for Seniors"
-   - "workout" should match "Morning Workout Session"
+   - "workout" should match "Workout" or "Morning Workout Session"
    - Use partial matching - if user says part of the event name, extract that part
 5. DO NOT make up UUIDs or use numbers like "1" - only use actual UUIDs from the events list
 6. If user mentions multiple events or is unclear, set event_id to null but still extract event_name
+7. IMPORTANT: When extracting event_name, remove leading articles ("the", "a", "an") and common prepositions
 
 For "general" intent:
 - Use for questions like "what is this app?", "how do I use this?", "what can you do?"
@@ -560,6 +569,17 @@ async def process_message(request: TextMessage):
                 event_name = intent_data.get("event_name", "").strip() if intent_data.get("event_name") else ""
                 potential_event_id = intent_data.get("event_id")
                 
+                # Debug logging
+                print(f"DEBUG: Intent detection extracted - event_name: '{event_name}', event_id: '{potential_event_id}'")
+                
+                # Clean up event_name: remove common articles and extra words
+                if event_name:
+                    # Remove common articles and prepositions at the start
+                    event_name_cleaned = re.sub(r'^(the|a|an)\s+', '', event_name, flags=re.IGNORECASE).strip()
+                    if event_name_cleaned and event_name_cleaned != event_name:
+                        print(f"DEBUG: Cleaned event_name from '{event_name}' to '{event_name_cleaned}'")
+                        event_name = event_name_cleaned
+                
                 # Get available events to search through
                 events_resp = await client.get(f"{base_url}/api/events/list?limit=50")
                 if events_resp.status_code == 200:
@@ -572,12 +592,21 @@ async def process_message(request: TextMessage):
                         if event_id_check and uuid_pattern_filter.match(str(event_id_check)) and len(str(event_id_check)) == 36:
                             events.append(event)
                     
+                    print(f"DEBUG: Found {len(events)} valid events in database")
+                    if events:
+                        print(f"DEBUG: Event titles: {[e.get('title') for e in events[:5]]}")
+                    
                     # Use improved matching function to find the specific event
                     matched_event = find_event_by_name_or_id(
                         events=events,
                         event_name=event_name if event_name else None,
                         event_id=potential_event_id if potential_event_id else None
                     )
+                    
+                    if matched_event:
+                        print(f"DEBUG: Matched event: '{matched_event.get('title')}' (ID: {matched_event.get('id')[:8]}...)")
+                    else:
+                        print(f"DEBUG: No event matched for event_name='{event_name}', event_id='{potential_event_id}'")
                     
                     # If no match and user didn't specify an event name, show available events
                     if not matched_event and not event_name:

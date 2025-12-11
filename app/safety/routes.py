@@ -405,9 +405,8 @@ async def update_location(location: LocationRequest):
 
         return {
             "success": True,
-            "message": "Location stored",
-            "data": response.data[0] if response.data else None,
-            "address": address,  # Return the readable address
+            "location_updated": True,
+            "message": "Location updated successfully"
         }
     except HTTPException:
         raise
@@ -526,76 +525,52 @@ async def get_current_location(
         current_location = location_response.data[0] if location_response.data else None
 
         if not current_location:
-            return {
-                "success": True,
-                "message": "No location data found for this user",
-                "user_id": user_id,
-                "current_location": None,
-                "location_display": "Location not available",
-                "address": None,
-                "timestamp": None,
-            }
+            # Return error response when no location found
+            raise HTTPException(
+                status_code=404,
+                detail="No location data found for this user"
+            )
 
-        # Format location display string - prioritize address, fallback to reverse geocoding, then coordinates
-        location_display = None
-        address = current_location.get("address")
-        
-        if address:
-            # Use address from database if available
-            location_display = address
-        elif current_location.get("latitude") and current_location.get("longitude"):
-            # If no address stored, perform reverse geocoding on-the-fly to get readable address
-            lat = current_location.get("latitude")
-            lon = current_location.get("longitude")
-            try:
-                # Try to get address from reverse geocoding (async)
-                address = await reverse_geocode(lat, lon)
-                if address:
-                    location_display = address
+        # Get timestamp and format it as ISO 8601 with Z suffix
+        timestamp = current_location.get("timestamp")
+        if timestamp:
+            # Convert to string if needed
+            if not isinstance(timestamp, str):
+                if hasattr(timestamp, 'isoformat'):
+                    timestamp = timestamp.isoformat()
                 else:
-                    # Fallback: use generic message instead of coordinates
-                    location_display = "Location not available"
-            except Exception as e:
-                # If reverse geocoding fails, use generic message
-                print(f"Reverse geocoding failed in GET endpoint: {e}")
-                location_display = "Location not available"
-        else:
-            location_display = "Location not available"
-
-        # Calculate time since last update
-        time_since_update = None
-        if current_location.get("timestamp"):
-            try:
-                timestamp_str = current_location.get("timestamp")
-                if isinstance(timestamp_str, str):
-                    # Parse ISO format timestamp
-                    if timestamp_str.endswith('Z'):
-                        timestamp_str = timestamp_str[:-1] + '+00:00'
-                    location_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                    if location_time.tzinfo is None:
-                        location_time = location_time.replace(tzinfo=timezone.utc)
-                    now = datetime.now(timezone.utc)
-                    diff = now - location_time
-                    minutes_ago = int(diff.total_seconds() / 60)
-                    if minutes_ago < 1:
-                        time_since_update = "Just now"
-                    elif minutes_ago == 1:
-                        time_since_update = "1 minute ago"
+                    timestamp = str(timestamp)
+            
+            # Ensure timestamp ends with Z (UTC indicator)
+            # Supabase timestamps are usually in ISO format with timezone
+            # Convert to UTC Z format if needed
+            if timestamp.endswith('Z'):
+                # Already in UTC Z format
+                pass
+            elif '+' in timestamp or timestamp.count('-') > 2:
+                # Has timezone offset, convert to Z
+                # Remove timezone offset and add Z
+                if '+' in timestamp:
+                    timestamp = timestamp.split('+')[0] + 'Z'
+                elif timestamp.count('-') > 2:
+                    # Format like 2025-12-12T10:30:00-05:00
+                    parts = timestamp.rsplit('-', 2)
+                    if len(parts) == 3:
+                        timestamp = parts[0] + '-' + parts[1] + 'Z'
                     else:
-                        time_since_update = f"{minutes_ago} minutes ago"
-            except Exception:
-                time_since_update = None
+                        timestamp = timestamp + 'Z'
+            else:
+                # No timezone info, assume UTC and add Z
+                timestamp = timestamp + 'Z'
 
+        # Return location in the expected format
         return {
             "success": True,
-            "user_id": target_user_id,  # Return the actual user_id whose location is being shown
-            "requested_user_id": user_id,  # The user_id that was requested (may differ if role=caregiver)
-            "current_location": current_location,  # Full location object from database
-            "address": current_location.get("address"),
-            "location_display": location_display,  # Readable location string for frontend (never hardcoded - always from database)
-            "timestamp": current_location.get("timestamp"),
-            "time_since_update": time_since_update,  # Human-readable time (e.g., "2 minutes ago")
-            "is_current": True,  # Explicitly mark this as the current location
+            "location": {
+                "latitude": current_location.get("latitude"),
+                "longitude": current_location.get("longitude"),
+                "last_updated": timestamp
+            }
         }
     except HTTPException:
         raise
