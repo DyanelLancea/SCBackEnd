@@ -7,6 +7,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
+from dotenv import load_dotenv
+
+# Load environment variables from .env file first
+load_dotenv()
 
 # Import Supabase connection
 from app.shared.supabase import get_supabase_client, test_connection
