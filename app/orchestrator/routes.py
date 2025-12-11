@@ -802,20 +802,42 @@ async def process_voice_message(request: VoiceMessage):
         # Use the same processing logic
         try:
             result = await process_message(text_request)
+            
+            # Ensure result is a dictionary
+            if not isinstance(result, dict):
+                result = {
+                    "success": True,
+                    "intent": "general",
+                    "message": str(result) if result else "Message processed",
+                    "user_id": request.user_id
+                }
+            
+            # Ensure required fields are present
+            if "success" not in result:
+                result["success"] = True
+            if "intent" not in result:
+                result["intent"] = "general"
+            if "message" not in result:
+                result["message"] = "Voice message processed"
+            if "user_id" not in result:
+                result["user_id"] = request.user_id
+            
+            # Add transcript to response
+            result["transcript"] = transcript
+            result["source"] = "voice"
+            
+            return result
         except Exception as e:
             # Catch any errors from process_message and return a proper error
+            import traceback
             error_msg = str(e)
+            error_traceback = traceback.format_exc()
             print(f"Error in process_message: {error_msg}")
+            print(f"Traceback: {error_traceback}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to process message: {error_msg}"
             )
-        
-        # Add transcript to response
-        result["transcript"] = transcript
-        result["source"] = "voice"
-        
-        return result
     except HTTPException:
         # Re-raise HTTPExceptions (they're already properly formatted)
         raise
