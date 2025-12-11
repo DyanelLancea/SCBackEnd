@@ -24,8 +24,8 @@ router = APIRouter()
 
 async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
     """
-    Convert coordinates to a readable address using OpenStreetMap Nominatim API.
-    Returns area name like "Punggol Coast" or full address.
+    Convert coordinates to a clean, readable address using OpenStreetMap Nominatim API.
+    Returns a nice, short address like "Bukit Timah" or "Holland Road" instead of full address.
     """
     try:
         # Use OpenStreetMap Nominatim API (free, no API key required)
@@ -47,29 +47,68 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
                 data = response.json()
                 address = data.get("address", {})
                 
-                # Try to extract a readable area name (Singapore-specific)
-                # Priority: suburb > neighbourhood > city > state
-                area_name = (
-                    address.get("suburb") or
-                    address.get("neighbourhood") or
-                    address.get("city_district") or
-                    address.get("city") or
-                    address.get("state")
-                )
+                # For Singapore addresses, build a clean, short format
+                # Priority order for a nice display:
+                # 1. Road name (e.g., "Holland Road")
+                # 2. Suburb/Neighbourhood (e.g., "Bukit Timah")
+                # 3. City district
+                # 4. City
                 
-                # If we have a good area name, return it
-                if area_name:
-                    return area_name
+                road = address.get("road") or address.get("street")
+                suburb = address.get("suburb") or address.get("neighbourhood")
+                city_district = address.get("city_district")
+                city = address.get("city")
                 
-                # Otherwise, construct a readable address
+                # Build a nice, short address
+                location_parts = []
+                
+                # If we have a road name, use it (e.g., "Holland Road")
+                if road:
+                    location_parts.append(road)
+                
+                # Add suburb/neighbourhood if available and different from road
+                if suburb and suburb != road:
+                    location_parts.append(suburb)
+                elif city_district and city_district != road:
+                    location_parts.append(city_district)
+                elif city and city != road and city not in ["Singapore"]:
+                    location_parts.append(city)
+                
+                # If we have parts, join them nicely (e.g., "Holland Road, Bukit Timah")
+                if location_parts:
+                    # Limit to 2 parts max for a clean display
+                    if len(location_parts) > 2:
+                        location_parts = location_parts[:2]
+                    return ", ".join(location_parts)
+                
+                # Fallback: try to extract from display_name
                 display_name = data.get("display_name", "")
                 if display_name:
-                    # Extract first part of address (usually the area)
-                    parts = display_name.split(",")
-                    if len(parts) > 0:
-                        return parts[0].strip()
+                    # Split by comma and take first 2 parts (usually road and area)
+                    parts = [p.strip() for p in display_name.split(",")]
+                    # Filter out generic parts like "Singapore", "Central Region", postal codes
+                    filtered_parts = []
+                    skip_words = ["singapore", "central region", "south west region", 
+                                 "north east region", "north west region", "south east region"]
+                    
+                    for part in parts[:3]:  # Take first 3 parts max
+                        part_lower = part.lower()
+                        # Skip if it's a generic location or postal code (numbers only)
+                        if (part_lower not in skip_words and 
+                            not part.isdigit() and 
+                            len(part) > 2):
+                            filtered_parts.append(part)
+                            if len(filtered_parts) >= 2:  # Max 2 parts for clean display
+                                break
+                    
+                    if filtered_parts:
+                        return ", ".join(filtered_parts)
+                    
+                    # Last resort: return first part if it's not too generic
+                    if len(parts) > 0 and parts[0].lower() not in skip_words:
+                        return parts[0]
                 
-                return display_name
+                return None
     except Exception as e:
         print(f"Reverse geocoding failed: {e}")
         return None
