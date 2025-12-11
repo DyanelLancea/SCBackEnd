@@ -762,11 +762,18 @@ async def process_voice_message(request: VoiceMessage):
             # Check if OpenAI is available before attempting transcription
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
-                # Return 400 (Bad Request) instead of 500 to avoid triggering frontend's "voice unavailable" message
-                raise HTTPException(
-                    status_code=400,
-                    detail="Audio transcription requires OPENAI_API_KEY. Please provide 'transcript' field instead (use frontend speech-to-text), or configure OPENAI_API_KEY in backend environment variables."
-                )
+                # Return a helpful response instead of an error
+                # Frontend should use browser speech-to-text and send transcript instead
+                return {
+                    "success": False,
+                    "intent": "general",
+                    "message": "Audio transcription is not available. Please use your browser's speech-to-text feature and send the transcript instead of audio.",
+                    "user_id": request.user_id,
+                    "error": "OPENAI_API_KEY not configured",
+                    "suggestion": "Use frontend speech-to-text (Web Speech API) and send 'transcript' field instead of 'audio'",
+                    "transcript": None,
+                    "source": "voice"
+                }
             
             try:
                 transcript = await process_audio_with_whisper(request.audio)
