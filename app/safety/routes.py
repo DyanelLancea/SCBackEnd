@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 import os
 import httpx
@@ -155,22 +155,45 @@ def trigger_sos(sos_request: SOSRequest):
             "status": "active",
         }
         
-        sos_response = supabase.table("sos_logs").insert(sos_data).execute()
+        try:
+            sos_response = supabase.table("sos_logs").insert(sos_data).execute()
+        except Exception as sos_insert_error:
+            print(f"Error inserting SOS log: {sos_insert_error}")
+            # Continue anyway - we can still make the call even if logging fails
+            sos_response = type('obj', (object,), {'data': [sos_data]})()
 
         # Get latest location data if available
-        location_response = (
-            supabase.table("location_logs")
-            .select("*")
-            .eq("user_id", sos_request.user_id)
-            .order("timestamp", desc=True)
-            .limit(1)
-            .execute()
-        )
-        latest_location = location_response.data[0] if location_response.data else None
+        try:
+            location_response = (
+                supabase.table("location_logs")
+                .select("*")
+                .eq("user_id", sos_request.user_id)
+                .order("timestamp", desc=True)
+                .limit(1)
+                .execute()
+            )
+            latest_location = location_response.data[0] if location_response.data else None
+        except Exception as loc_error:
+            # If location query fails, continue without location data
+            print(f"Warning: Could not fetch location data: {loc_error}")
+            latest_location = None
 
-        # Format current time
-        current_time = datetime.utcnow()
-        time_str = current_time.strftime("%B %d, %Y at %I:%M %p UTC")
+        # Format current time in Singapore timezone (SGT - UTC+8)
+        try:
+            if ZoneInfo:
+                # Use zoneinfo for proper timezone handling
+                singapore_tz = ZoneInfo("Asia/Singapore")
+                current_time = datetime.now(singapore_tz)
+                time_str = current_time.strftime("%B %d, %Y at %I:%M %p SGT")
+            else:
+                # Fallback: manually add 8 hours for Singapore time (UTC+8)
+                current_time = datetime.utcnow() + timedelta(hours=8)
+                time_str = current_time.strftime("%B %d, %Y at %I:%M %p SGT")
+        except Exception as tz_error:
+            # If timezone conversion fails, fallback to UTC+8 manually
+            print(f"Timezone conversion error: {tz_error}")
+            current_time = datetime.utcnow() + timedelta(hours=8)
+            time_str = current_time.strftime("%B %d, %Y at %I:%M %p SGT")
 
         # Extract area name from location - prioritize the exact location from SOS request
         # Priority: 1) Exact location from SOS request, 2) Extract area from request location, 3) Latest location from DB, 4) Unknown
@@ -333,6 +356,10 @@ def trigger_sos(sos_request: SOSRequest):
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
+        print(f"Error in trigger_sos: {str(e)}")
+        print(f"Traceback: {error_traceback}")
         raise HTTPException(status_code=500, detail=f"Failed to trigger SOS: {str(e)}")
 
 
@@ -368,8 +395,8 @@ async def update_location(location: LocationRequest):
             # Perform reverse geocoding to get readable address from coordinates
             address = await reverse_geocode(location.latitude, location.longitude)
             if not address:
-                # Fallback: format coordinates as readable string
-                address = f"{location.latitude:.6f}, {location.longitude:.6f}"
+                # Fallback: use generic message instead of coordinates
+                address = "Location not available"
 
         # Build location data - only include address if column exists
         location_data = {
@@ -494,8 +521,6 @@ async def get_current_location(
                         "role": "caregiver",
                         "current_location": None,
                         "location_display": "Location not available - No linked elderly user",
-                        "latitude": None,
-                        "longitude": None,
                         "address": None,
                         "timestamp": None,
                     }
@@ -526,8 +551,6 @@ async def get_current_location(
                 "user_id": user_id,
                 "current_location": None,
                 "location_display": "Location not available",
-                "latitude": None,
-                "longitude": None,
                 "address": None,
                 "timestamp": None,
             }
@@ -549,12 +572,12 @@ async def get_current_location(
                 if address:
                     location_display = address
                 else:
-                    # Fallback: format coordinates as readable string
-                    location_display = f"Lat: {lat:.6f}, Lon: {lon:.6f}"
+                    # Fallback: use generic message instead of coordinates
+                    location_display = "Location not available"
             except Exception as e:
-                # If reverse geocoding fails, use coordinates
+                # If reverse geocoding fails, use generic message
                 print(f"Reverse geocoding failed in GET endpoint: {e}")
-                location_display = f"Lat: {lat:.6f}, Lon: {lon:.6f}"
+                location_display = "Location not available"
         else:
             location_display = "Location not available"
 
@@ -587,8 +610,6 @@ async def get_current_location(
             "user_id": target_user_id,  # Return the actual user_id whose location is being shown
             "requested_user_id": user_id,  # The user_id that was requested (may differ if role=caregiver)
             "current_location": current_location,  # Full location object from database
-            "latitude": current_location.get("latitude"),
-            "longitude": current_location.get("longitude"),
             "address": current_location.get("address"),
             "location_display": location_display,  # Readable location string for frontend (never hardcoded - always from database)
             "timestamp": current_location.get("timestamp"),
