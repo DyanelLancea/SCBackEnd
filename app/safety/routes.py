@@ -76,14 +76,15 @@ def trigger_sos(sos_request: SOSRequest):
         current_time = datetime.utcnow()
         time_str = current_time.strftime("%B %d, %Y at %I:%M %p UTC")
 
-        # Extract area name from location (e.g., "Punggol Coast" from full address)
-        # Priority: 1) Area name from location string, 2) Latest location from DB, 3) Unknown
+        # Extract area name from location - prioritize the exact location from SOS request
+        # Priority: 1) Exact location from SOS request, 2) Extract area from request location, 3) Latest location from DB, 4) Unknown
         area_name = None
         location_info = "Unknown location"
         
-        # Try to extract area name from the location string
+        # First, use the location directly from the SOS request if it's a simple area name
         if sos_request.location:
-            location_str = sos_request.location
+            location_str = sos_request.location.strip()
+            
             # Common area patterns in Singapore (can be extended)
             singapore_areas = [
                 "Punggol Coast", "Punggol", "Jurong", "Tampines", "Woodlands",
@@ -92,23 +93,31 @@ def trigger_sos(sos_request: SOSRequest):
                 "Hougang", "Bedok", "Clementi", "Queenstown", "Bukit Timah"
             ]
             
-            # Check if location contains any area name
+            # Check if the location string exactly matches or contains a known area
+            location_lower = location_str.lower()
             for area in singapore_areas:
-                if area.lower() in location_str.lower():
+                area_lower = area.lower()
+                # Check for exact match or if location contains the area name
+                if location_lower == area_lower or area_lower in location_lower:
                     area_name = area
                     break
             
-            # If no area found, try to extract first meaningful words (usually area name)
+            # If no exact area match found, check if it's a simple name (1-3 words, no commas/numbers)
             if not area_name:
-                # Split by common delimiters and take first 2-3 words
+                # Check if location is already a simple area name (no complex address)
                 parts = location_str.replace(',', ' ').replace('-', ' ').split()
-                if len(parts) >= 2:
-                    # Take first 2 words as potential area name
-                    area_name = ' '.join(parts[:2])
-                else:
+                # If it's 1-3 words and doesn't look like coordinates or full address
+                if len(parts) <= 3 and not any(char.isdigit() for char in location_str):
+                    # Use the location as-is (it's likely already an area name)
                     area_name = location_str
+                else:
+                    # Extract first 2 words as area name from longer address
+                    if len(parts) >= 2:
+                        area_name = ' '.join(parts[:2])
+                    else:
+                        area_name = location_str
         
-        # If no area from request, check latest location from database
+        # If no area from request, check latest location from database (fallback only)
         if not area_name and latest_location:
             # Check if location_logs has an address field
             if latest_location.get("address"):
@@ -119,13 +128,12 @@ def trigger_sos(sos_request: SOSRequest):
                     area_name = ' '.join(parts[:2])
                 else:
                     area_name = address
-            # If only coordinates available, we can't extract area name - will use "Unknown location"
         
-        # Build location message with area name only (no GPS coordinates)
+        # Build location message - use the area name extracted from SOS request location
         if area_name:
             location_info = f"Area: {area_name}"
         elif latest_location and latest_location.get("address"):
-            # Use address from database if available
+            # Fallback: Use address from database if available
             location_info = f"Area: {latest_location.get('address')}"
         else:
             location_info = "Unknown location"
