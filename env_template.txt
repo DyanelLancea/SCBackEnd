@@ -42,6 +42,12 @@ SEA_LION_API_KEY=your-sea-lion-api-key-here
 # Get your API key from: https://platform.openai.com/api-keys
 OPENAI_API_KEY=your-openai-api-key-here
 
+# GROQ Configuration (for fast intent detection)
+# Get your API key from: https://console.groq.com/keys
+# GROQ provides ultra-fast inference (10-100x faster than OpenAI) for intent detection
+# Recommended models: llama-3.1-70b-versatile (best quality) or llama-3.1-8b-instant (fastest)
+GROQ_API_KEY=your-groq-api-key-here
+
 # Optional: Other AI Services
 # ELEVENLABS_API_KEY=your-elevenlabs-api-key
 
