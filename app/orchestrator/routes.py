@@ -747,58 +747,79 @@ async def process_voice_message(request: VoiceMessage):
     
     Note: If using audio, OPENAI_API_KEY must be configured. Transcript-based processing works without it.
     """
-    transcript = request.transcript
-    
-    # If no transcript but audio is provided, transcribe it using Whisper
-    if (not transcript or not transcript.strip()) and request.audio:
-        # Check if OpenAI is available before attempting transcription
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            # Return 400 (Bad Request) instead of 500 to avoid triggering frontend's "voice unavailable" message
-            raise HTTPException(
-                status_code=400,
-                detail="Audio transcription requires OPENAI_API_KEY. Please provide 'transcript' field instead (use frontend speech-to-text), or configure OPENAI_API_KEY in backend environment variables."
-            )
+    try:
+        transcript = request.transcript
         
-        try:
-            transcript = await process_audio_with_whisper(request.audio)
-        except Exception as e:
-            # Return 400 instead of 500 to avoid triggering frontend error message
-            error_msg = str(e)
-            # Don't mention "OpenAI package" to avoid triggering frontend's error detection
-            if "OpenAI package" in error_msg or "pip install" in error_msg:
+        # If no transcript but audio is provided, transcribe it using Whisper
+        if (not transcript or not transcript.strip()) and request.audio:
+            # Check if OpenAI is available before attempting transcription
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                # Return 400 (Bad Request) instead of 500 to avoid triggering frontend's "voice unavailable" message
                 raise HTTPException(
                     status_code=400,
-                    detail="Audio transcription is not available. Please provide 'transcript' field instead (use frontend speech-to-text)."
+                    detail="Audio transcription requires OPENAI_API_KEY. Please provide 'transcript' field instead (use frontend speech-to-text), or configure OPENAI_API_KEY in backend environment variables."
                 )
+            
+            try:
+                transcript = await process_audio_with_whisper(request.audio)
+            except Exception as e:
+                # Return 400 instead of 500 to avoid triggering frontend error message
+                error_msg = str(e)
+                # Don't mention "OpenAI package" to avoid triggering frontend's error detection
+                if "OpenAI package" in error_msg or "pip install" in error_msg:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Audio transcription is not available. Please provide 'transcript' field instead (use frontend speech-to-text)."
+                    )
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to transcribe audio: {error_msg}. Please provide 'transcript' field instead."
+                )
+        
+        # Validate we have a transcript
+        if not transcript or not transcript.strip():
             raise HTTPException(
                 status_code=400,
-                detail=f"Failed to transcribe audio: {error_msg}. Please provide 'transcript' field instead."
+                detail="Either 'transcript' (recommended - use frontend speech-to-text) or 'audio' must be provided. If using audio, OPENAI_API_KEY must be configured in backend."
             )
-    
-    # Validate we have a transcript
-    if not transcript or not transcript.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Either 'transcript' (recommended - use frontend speech-to-text) or 'audio' must be provided. If using audio, OPENAI_API_KEY must be configured in backend."
+        
+        # Process voice message the same way as text message
+        # Convert VoiceMessage to TextMessage format
+        text_request = TextMessage(
+            user_id=request.user_id,
+            message=transcript,
+            location=request.location
         )
-    
-    # Process voice message the same way as text message
-    # Convert VoiceMessage to TextMessage format
-    text_request = TextMessage(
-        user_id=request.user_id,
-        message=transcript,
-        location=request.location
-    )
-    
-    # Use the same processing logic
-    result = await process_message(text_request)
-    
-    # Add transcript to response
-    result["transcript"] = transcript
-    result["source"] = "voice"
-    
-    return result
+        
+        # Use the same processing logic
+        try:
+            result = await process_message(text_request)
+        except Exception as e:
+            # Catch any errors from process_message and return a proper error
+            error_msg = str(e)
+            print(f"Error in process_message: {error_msg}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to process message: {error_msg}"
+            )
+        
+        # Add transcript to response
+        result["transcript"] = transcript
+        result["source"] = "voice"
+        
+        return result
+    except HTTPException:
+        # Re-raise HTTPExceptions (they're already properly formatted)
+        raise
+    except Exception as e:
+        # Catch any other unexpected errors and return a proper error response
+        error_msg = str(e)
+        print(f"Unexpected error in process_voice_message: {error_msg}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Backend server error: {error_msg}. Please try again later or contact support."
+        )
 
 
 @router.get("/history/{user_id}")
