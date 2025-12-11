@@ -13,7 +13,11 @@ import json
 import os
 import re
 import tempfile
+from dotenv import load_dotenv
 from app.shared.supabase import get_supabase_client
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 def get_api_base_url() -> str:
