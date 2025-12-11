@@ -37,7 +37,7 @@ def trigger_sos(sos_request: SOSRequest):
             if account_sid and auth_token:
                 client = Client(account_sid, auth_token)
                 
-                message = f"Emergency SOS Alert from user {sos_request.user_id}."
+                message = "Emergency SOS Alert."
                 if sos_request.location:
                     message += f" Location: {sos_request.location}."
                 if sos_request.message:
@@ -87,7 +87,7 @@ def get_current_location(
             "longitude": lng,
             "timestamp": datetime.utcnow().isoformat()
         },
-        "location_display": f"Lat: {lat}, Lng: {lng}",
+        "location_display": "Current location",
         "timestamp": datetime.utcnow().isoformat(),
         "time_since_update": "Just now"
     }
