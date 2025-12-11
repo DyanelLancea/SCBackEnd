@@ -383,13 +383,14 @@ def get_current_location(
                 print(f"Warning: Could not find linked elderly user for caregiver {user_id}. Returning caregiver's own location.")
                 target_user_id = user_id  # Fallback to caregiver's own location
 
-        # Get most recent location from database (never hardcoded)
+        # Get most recent CURRENT location from database (never hardcoded)
+        # This ensures we always return the user's actual current location, not a hardcoded value
         location_response = (
             supabase.table("location_logs")
             .select("*")
             .eq("user_id", target_user_id)
-            .order("timestamp", desc=True)
-            .limit(1)
+            .order("timestamp", desc=True)  # Get most recent first
+            .limit(1)  # Only get the latest location entry
             .execute()
         )
         
@@ -447,14 +448,16 @@ def get_current_location(
 
         return {
             "success": True,
-            "user_id": user_id,
-            "current_location": current_location,
+            "user_id": target_user_id,  # Return the actual user_id whose location is being shown
+            "requested_user_id": user_id,  # The user_id that was requested (may differ if role=caregiver)
+            "current_location": current_location,  # Full location object from database
             "latitude": current_location.get("latitude"),
             "longitude": current_location.get("longitude"),
             "address": current_location.get("address"),
-            "location_display": location_display,  # Readable location string for frontend (never hardcoded)
+            "location_display": location_display,  # Readable location string for frontend (never hardcoded - always from database)
             "timestamp": current_location.get("timestamp"),
             "time_since_update": time_since_update,  # Human-readable time (e.g., "2 minutes ago")
+            "is_current": True,  # Explicitly mark this as the current location
         }
     except HTTPException:
         raise
