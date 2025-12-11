@@ -420,7 +420,26 @@ async def update_location(location: LocationRequest):
         )
 
 
-# Get Current Location Endpoint
+# Get Current Location Endpoint (query parameters version for frontend compatibility)
+@router.get("/location")
+async def get_location(
+    user_id: Optional[str] = Query(None, description="User ID"),
+    role: Optional[str] = Query(None, description="User role: 'caregiver' or 'elderly'."),
+    lat: Optional[float] = Query(None, description="Current latitude"),
+    lng: Optional[float] = Query(None, description="Current longitude")
+):
+    """
+    Get the most recent location for a user from location_logs table.
+    This endpoint accepts user_id as a query parameter for frontend compatibility.
+    """
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required as a query parameter")
+    
+    # Call the path-based endpoint
+    return await get_current_location(user_id, role, lat, lng)
+
+
+# Get Current Location Endpoint (with user_id in path)
 @router.get("/location/{user_id}")
 async def get_current_location(
     user_id: str,
