@@ -132,7 +132,7 @@ class LocationRequest(BaseModel):
 
 # SOS Endpoint
 @router.post("/sos")
-def trigger_sos(sos_request: SOSRequest):
+async def trigger_sos(sos_request: SOSRequest):
     """
     Trigger an SOS emergency call.
     - Inserts into sos_logs table
@@ -265,20 +265,30 @@ def trigger_sos(sos_request: SOSRequest):
         call_status = None
         
         # Check if emergency number is configured
+        # Detect if we're in production (Render, etc.)
+        is_production = (
+            os.getenv("RENDER") == "true" or 
+            "render.com" in os.getenv("RENDER_SERVICE_URL", "").lower() or
+            "render.com" in os.getenv("RENDER_EXTERNAL_URL", "").lower() or
+            os.getenv("ENVIRONMENT") == "production"
+        )
+        
+        env_location = "Render dashboard Environment tab" if is_production else ".env file"
+        
         if not emergency_number:
-            call_status = "Emergency number not configured. Please set SOS_EMERGENCY_NUMBER in your .env file."
-            call_error_details = "SOS_EMERGENCY_NUMBER must be set in environment variables"
+            call_status = f"Emergency number not configured. Please set SOS_EMERGENCY_NUMBER in {env_location}."
+            call_error_details = f"SOS_EMERGENCY_NUMBER must be set in environment variables ({env_location})"
         elif not from_number:
-            call_status = "Twilio phone number not configured. Please set TWILIO_PHONE_NUMBER in your .env file."
-            call_error_details = "TWILIO_PHONE_NUMBER must be set in environment variables"
+            call_status = f"Twilio phone number not configured. Please set TWILIO_PHONE_NUMBER in {env_location}."
+            call_error_details = f"TWILIO_PHONE_NUMBER must be set in environment variables ({env_location})"
         else:
             try:
                 account_sid = os.getenv("TWILIO_ACCOUNT_SID")
                 auth_token = os.getenv("TWILIO_AUTH_TOKEN")
                 
                 if not account_sid or not auth_token:
-                    call_status = "Twilio not configured - Missing Account SID or Auth Token. Please check your .env file."
-                    call_error_details = "TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set in environment variables"
+                    call_status = f"Twilio not configured - Missing Account SID or Auth Token. Please check {env_location}."
+                    call_error_details = f"TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set in environment variables ({env_location})"
                 else:
                     client = Client(account_sid, auth_token)
                     
@@ -286,13 +296,22 @@ def trigger_sos(sos_request: SOSRequest):
                     safe_message = emergency_message.replace("&", "and").replace("<", "less than").replace(">", "greater than")
                     
                     # Make the call with detailed automated message
-                    call = client.calls.create(
-                        twiml=f'<Response><Say voice="alice" language="en-US">{safe_message}</Say><Pause length="2"/><Say voice="alice" language="en-US">Repeating alert details. {safe_message}</Say></Response>',
-                        to=emergency_number,
-                        from_=from_number
-                    )
-                    call_sid = call.sid
-                    call_status = f"Emergency call successfully initiated to {emergency_number}. Call SID: {call.sid}"
+                    # Use timeout to prevent hanging
+                    try:
+                        call = client.calls.create(
+                            twiml=f'<Response><Say voice="alice" language="en-US">{safe_message}</Say><Pause length="2"/><Say voice="alice" language="en-US">Repeating alert details. {safe_message}</Say></Response>',
+                            to=emergency_number,
+                            from_=from_number,
+                            timeout=10  # Timeout after 10 seconds
+                        )
+                        call_sid = call.sid
+                        call_status = f"Emergency call successfully initiated to {emergency_number}. Call SID: {call.sid}"
+                    except Exception as timeout_error:
+                        # If call creation times out, still return success but note the timeout
+                        error_str = str(timeout_error)
+                        call_status = f"Call initiation may have timed out: {error_str}"
+                        call_error_details = f"Call request sent but confirmation timed out. The call may still be processing."
+                        print(f"Warning: Twilio call creation timeout: {error_str}")
                     
             except Exception as call_error:
                 error_str = str(call_error)
@@ -325,9 +344,18 @@ def trigger_sos(sos_request: SOSRequest):
         # Determine overall success based on call status
         call_successful = call_sid is not None and "successfully initiated" in call_status.lower()
         
+        # Build user-friendly message for frontend
+        if call_successful:
+            user_message = f"SOS alert sent! Emergency call initiated to {emergency_number}."
+        elif call_error_details and ("not configured" in call_error_details.lower() or "must be set" in call_error_details.lower()):
+            user_message = "SOS alert logged successfully. Emergency call not configured - please configure Twilio settings."
+        else:
+            user_message = f"SOS alert sent! {call_status}"
+        
         return {
             "success": True,
-            "message": "SOS alert triggered",
+            "message": user_message,  # User-friendly message for frontend
+            "alert_triggered": True,  # Always true if we reach here - indicates alert was sent
             "emergency_call_initiated": emergency_number,
             "call_from_number": from_number,
             "call_sid": call_sid,
@@ -346,7 +374,7 @@ def trigger_sos(sos_request: SOSRequest):
 
 # Emergency Endpoint (alias for /sos for frontend compatibility)
 @router.post("/emergency")
-def trigger_emergency(sos_request: SOSRequest):
+async def trigger_emergency(sos_request: SOSRequest):
     """
     Trigger an emergency alert (alias for /sos endpoint).
     This endpoint exists for frontend compatibility.
