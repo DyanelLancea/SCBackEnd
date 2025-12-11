@@ -237,7 +237,6 @@ def trigger_sos(sos_request: SOSRequest):
         # Build the automated message for the phone call
         message_parts = [
             "Emergency SOS Alert.",
-            f"This is an automated emergency alert from user {sos_request.user_id}.",
             f"Alert triggered on {time_str}.",
             f"Location: {location_info}.",
         ]

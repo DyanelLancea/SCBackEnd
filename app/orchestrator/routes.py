@@ -13,11 +13,7 @@ import json
 import os
 import re
 import tempfile
-from dotenv import load_dotenv
 from app.shared.supabase import get_supabase_client
-
-# Load environment variables from .env file
-load_dotenv()
 
 
 def get_api_base_url() -> str:
@@ -752,63 +748,34 @@ async def process_voice_message(request: VoiceMessage):
     Note: If using audio, OPENAI_API_KEY must be configured. Transcript-based processing works without it.
     """
     try:
-        # Validate request has user_id
-        if not request.user_id:
-            raise HTTPException(
-                status_code=400,
-                detail="user_id is required"
-            )
-        
-        transcript = request.transcript if hasattr(request, 'transcript') else None
+        transcript = request.transcript
         
         # If no transcript but audio is provided, transcribe it using Whisper
-        if (not transcript or not transcript.strip()) and hasattr(request, 'audio') and request.audio:
+        if (not transcript or not transcript.strip()) and request.audio:
             # Check if OpenAI is available before attempting transcription
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
-                # Return a helpful response instead of an error
-                # Frontend should use browser speech-to-text and send transcript instead
-                return {
-                    "success": False,
-                    "intent": "general",
-                    "message": "Audio transcription is not available. Please use your browser's speech-to-text feature and send the transcript instead of audio.",
-                    "user_id": request.user_id,
-                    "error": "OPENAI_API_KEY not configured",
-                    "suggestion": "Use frontend speech-to-text (Web Speech API) and send 'transcript' field instead of 'audio'",
-                    "transcript": None,
-                    "source": "voice"
-                }
+                # Return 400 (Bad Request) instead of 500 to avoid triggering frontend's "voice unavailable" message
+                raise HTTPException(
+                    status_code=400,
+                    detail="Audio transcription requires OPENAI_API_KEY. Please provide 'transcript' field instead (use frontend speech-to-text), or configure OPENAI_API_KEY in backend environment variables."
+                )
             
             try:
                 transcript = await process_audio_with_whisper(request.audio)
-            except HTTPException as e:
-                # If OpenAI is not available, return helpful response instead of error
-                if "OPENAI_API_KEY" in str(e.detail) or "OpenAI package" in str(e.detail):
-                    return {
-                        "success": False,
-                        "intent": "general",
-                        "message": "Audio transcription is not available. Please use your browser's speech-to-text feature and send the transcript instead of audio.",
-                        "user_id": request.user_id,
-                        "error": "OPENAI_API_KEY not configured",
-                        "suggestion": "Use frontend speech-to-text (Web Speech API) and send 'transcript' field instead of 'audio'",
-                        "transcript": None,
-                        "source": "voice"
-                    }
-                # Re-raise other HTTPExceptions
-                raise
             except Exception as e:
-                # Return helpful response instead of error
+                # Return 400 instead of 500 to avoid triggering frontend error message
                 error_msg = str(e)
-                return {
-                    "success": False,
-                    "intent": "general",
-                    "message": f"Audio transcription failed: {error_msg}. Please use your browser's speech-to-text feature and send the transcript instead.",
-                    "user_id": request.user_id,
-                    "error": error_msg,
-                    "suggestion": "Use frontend speech-to-text (Web Speech API) and send 'transcript' field instead of 'audio'",
-                    "transcript": None,
-                    "source": "voice"
-                }
+                # Don't mention "OpenAI package" to avoid triggering frontend's error detection
+                if "OpenAI package" in error_msg or "pip install" in error_msg:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Audio transcription is not available. Please provide 'transcript' field instead (use frontend speech-to-text)."
+                    )
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to transcribe audio: {error_msg}. Please provide 'transcript' field instead."
+                )
         
         # Validate we have a transcript
         if not transcript or not transcript.strip():
@@ -822,62 +789,36 @@ async def process_voice_message(request: VoiceMessage):
         text_request = TextMessage(
             user_id=request.user_id,
             message=transcript,
-            location=getattr(request, 'location', None)  # Safely get location if it exists
+            location=request.location
         )
         
         # Use the same processing logic
         try:
             result = await process_message(text_request)
-            
-            # Ensure result is a dictionary
-            if not isinstance(result, dict):
-                result = {
-                    "success": True,
-                    "intent": "general",
-                    "message": str(result) if result else "Message processed",
-                    "user_id": request.user_id
-                }
-            
-            # Ensure required fields are present
-            if "success" not in result:
-                result["success"] = True
-            if "intent" not in result:
-                result["intent"] = "general"
-            if "message" not in result:
-                result["message"] = "Voice message processed"
-            if "user_id" not in result:
-                result["user_id"] = request.user_id
-            
-            # Add transcript to response
-            result["transcript"] = transcript
-            result["source"] = "voice"
-            
-            return result
         except Exception as e:
             # Catch any errors from process_message and return a proper error
-            import traceback
             error_msg = str(e)
-            error_traceback = traceback.format_exc()
             print(f"Error in process_message: {error_msg}")
-            print(f"Traceback: {error_traceback}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to process message: {error_msg}"
             )
+        
+        # Add transcript to response
+        result["transcript"] = transcript
+        result["source"] = "voice"
+        
+        return result
     except HTTPException:
         # Re-raise HTTPExceptions (they're already properly formatted)
         raise
     except Exception as e:
         # Catch any other unexpected errors and return a proper error response
-        import traceback
         error_msg = str(e)
-        error_traceback = traceback.format_exc()
         print(f"Unexpected error in process_voice_message: {error_msg}")
-        print(f"Traceback: {error_traceback}")
-        # Return a user-friendly error message
         raise HTTPException(
             status_code=500,
-            detail=f"Backend server error. Please try again later or contact support. Error: {error_msg}"
+            detail=f"Backend server error: {error_msg}. Please try again later or contact support."
         )
 
 
@@ -943,13 +884,6 @@ async def process_singlish(request: SinglishProcessRequest):
     }
     """
     try:
-        # Validate user_id
-        if not request.user_id:
-            raise HTTPException(
-                status_code=400,
-                detail="user_id is required"
-            )
-        
         # Validate input
         if not request.audio and not request.transcript:
             raise HTTPException(
@@ -961,25 +895,8 @@ async def process_singlish(request: SinglishProcessRequest):
         transcript = None
         
         if request.audio:
-            # Check if OpenAI is available before attempting transcription
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Audio transcription requires OPENAI_API_KEY. Please provide 'transcript' field instead, or configure OPENAI_API_KEY in backend environment variables."
-                )
-            
-            try:
-                # Decode base64 audio and process with Whisper
-                transcript = await process_audio_with_whisper(request.audio)
-            except HTTPException:
-                raise
-            except Exception as e:
-                error_msg = str(e)
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Failed to transcribe audio: {error_msg}. Please provide 'transcript' field instead."
-                )
+            # Decode base64 audio and process with Whisper
+            transcript = await process_audio_with_whisper(request.audio)
         else:
             # Use provided transcript
             transcript = request.transcript
@@ -991,37 +908,7 @@ async def process_singlish(request: SinglishProcessRequest):
             )
         
         # Step 2: Process with GPT for translation and analysis
-        # Check if OpenAI is available for translation
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            # If no OpenAI key, return a simple response without translation
-            return {
-                "success": True,
-                "user_id": request.user_id,
-                "singlish_raw": transcript,
-                "clean_english": transcript,  # Use transcript as-is if no translation available
-                "sentiment": "neutral",
-                "tone": "informal",
-                "note": "Translation unavailable - OPENAI_API_KEY not configured. Using original transcript."
-            }
-        
-        try:
-            result = await translate_singlish_to_english(transcript)
-        except HTTPException:
-            raise
-        except Exception as e:
-            error_msg = str(e)
-            # If translation fails, return the original transcript
-            print(f"Translation failed: {error_msg}")
-            return {
-                "success": True,
-                "user_id": request.user_id,
-                "singlish_raw": transcript,
-                "clean_english": transcript,  # Fallback to original
-                "sentiment": "neutral",
-                "tone": "informal",
-                "note": f"Translation unavailable: {error_msg}. Using original transcript."
-            }
+        result = await translate_singlish_to_english(transcript)
         
         return {
             "success": True,
@@ -1032,14 +919,9 @@ async def process_singlish(request: SinglishProcessRequest):
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        error_msg = str(e)
-        error_traceback = traceback.format_exc()
-        print(f"Unexpected error in process_singlish: {error_msg}")
-        print(f"Traceback: {error_traceback}")
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing Singlish: {error_msg}"
+            detail=f"Error processing Singlish: {str(e)}"
         )
 
 
