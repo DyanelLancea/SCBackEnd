@@ -132,7 +132,7 @@ class LocationRequest(BaseModel):
 
 # SOS Endpoint
 @router.post("/sos")
-def trigger_sos(sos_request: SOSRequest):
+async def trigger_sos(sos_request: SOSRequest):
     """
     Trigger an SOS emergency call.
     - Inserts into sos_logs table
@@ -265,20 +265,30 @@ def trigger_sos(sos_request: SOSRequest):
         call_status = None
         
         # Check if emergency number is configured
+        # Detect if we're in production (Render, etc.)
+        is_production = (
+            os.getenv("RENDER") == "true" or 
+            "render.com" in os.getenv("RENDER_SERVICE_URL", "").lower() or
+            "render.com" in os.getenv("RENDER_EXTERNAL_URL", "").lower() or
+            os.getenv("ENVIRONMENT") == "production"
+        )
+        
+        env_location = "Render dashboard Environment tab" if is_production else ".env file"
+        
         if not emergency_number:
-            call_status = "Emergency number not configured. Please set SOS_EMERGENCY_NUMBER in your .env file."
-            call_error_details = "SOS_EMERGENCY_NUMBER must be set in environment variables"
+            call_status = f"Emergency number not configured. Please set SOS_EMERGENCY_NUMBER in {env_location}."
+            call_error_details = f"SOS_EMERGENCY_NUMBER must be set in environment variables ({env_location})"
         elif not from_number:
-            call_status = "Twilio phone number not configured. Please set TWILIO_PHONE_NUMBER in your .env file."
-            call_error_details = "TWILIO_PHONE_NUMBER must be set in environment variables"
+            call_status = f"Twilio phone number not configured. Please set TWILIO_PHONE_NUMBER in {env_location}."
+            call_error_details = f"TWILIO_PHONE_NUMBER must be set in environment variables ({env_location})"
         else:
             try:
                 account_sid = os.getenv("TWILIO_ACCOUNT_SID")
                 auth_token = os.getenv("TWILIO_AUTH_TOKEN")
                 
                 if not account_sid or not auth_token:
-                    call_status = "Twilio not configured - Missing Account SID or Auth Token. Please check your .env file."
-                    call_error_details = "TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set in environment variables"
+                    call_status = f"Twilio not configured - Missing Account SID or Auth Token. Please check {env_location}."
+                    call_error_details = f"TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set in environment variables ({env_location})"
                 else:
                     client = Client(account_sid, auth_token)
                     
@@ -346,7 +356,7 @@ def trigger_sos(sos_request: SOSRequest):
 
 # Emergency Endpoint (alias for /sos for frontend compatibility)
 @router.post("/emergency")
-def trigger_emergency(sos_request: SOSRequest):
+async def trigger_emergency(sos_request: SOSRequest):
     """
     Trigger an emergency alert (alias for /sos endpoint).
     This endpoint exists for frontend compatibility.

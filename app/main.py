@@ -53,16 +53,34 @@ app = FastAPI(
 
 
 # Configure CORS - Allow frontend to make requests
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+# Note: When allow_credentials=True, you cannot use "*" for allow_origins
+# You must specify exact origins or use allow_origin_regex
+import os
+import re
+
+# Get allowed origins from environment or use defaults
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
+if allowed_origins_env:
+    # Parse comma-separated origins from environment
+    allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",")]
+else:
+    # Default origins for development
+    allowed_origins = [
         "http://localhost:3000",      # Next.js default
         "http://localhost:3001",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
-        "*"  # Allow all origins for development (restrict in production)
-    ],
-    allow_credentials=True,
+    ]
+
+# Use regex pattern to allow all subdomains for common hosting platforms
+# This allows any Vercel, Netlify, or Render frontend
+allowed_origin_regex = r"https://.*\.(vercel\.app|netlify\.app|onrender\.com)$"
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_origin_regex=allowed_origin_regex,
+    allow_credentials=True,  # Set to False if you don't need cookies/auth headers
     allow_methods=["*"],  # Allow all HTTP methods
     allow_headers=["*"],  # Allow all headers
 )
