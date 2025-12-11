@@ -821,11 +821,15 @@ async def process_voice_message(request: VoiceMessage):
         raise
     except Exception as e:
         # Catch any other unexpected errors and return a proper error response
+        import traceback
         error_msg = str(e)
+        error_traceback = traceback.format_exc()
         print(f"Unexpected error in process_voice_message: {error_msg}")
+        print(f"Traceback: {error_traceback}")
+        # Return a user-friendly error message
         raise HTTPException(
             status_code=500,
-            detail=f"Backend server error: {error_msg}. Please try again later or contact support."
+            detail=f"Backend server error. Please try again later or contact support. Error: {error_msg}"
         )
 
 
