@@ -748,10 +748,17 @@ async def process_voice_message(request: VoiceMessage):
     Note: If using audio, OPENAI_API_KEY must be configured. Transcript-based processing works without it.
     """
     try:
-        transcript = request.transcript
+        # Validate request has user_id
+        if not request.user_id:
+            raise HTTPException(
+                status_code=400,
+                detail="user_id is required"
+            )
+        
+        transcript = request.transcript if hasattr(request, 'transcript') else None
         
         # If no transcript but audio is provided, transcribe it using Whisper
-        if (not transcript or not transcript.strip()) and request.audio:
+        if (not transcript or not transcript.strip()) and hasattr(request, 'audio') and request.audio:
             # Check if OpenAI is available before attempting transcription
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
@@ -789,7 +796,7 @@ async def process_voice_message(request: VoiceMessage):
         text_request = TextMessage(
             user_id=request.user_id,
             message=transcript,
-            location=request.location
+            location=getattr(request, 'location', None)  # Safely get location if it exists
         )
         
         # Use the same processing logic
