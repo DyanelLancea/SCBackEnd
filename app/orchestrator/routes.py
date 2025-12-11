@@ -292,7 +292,7 @@ def find_event_by_name_or_id(events: list, event_name: Optional[str] = None, eve
     # These words might appear in user's phrase but not in event titles
     normalized_search = re.sub(r'\b(event|class|session|activity|lesson|workshop|meeting|gathering|registration)\b', '', normalized_search, flags=re.IGNORECASE).strip()
     # Filter out short words and common stop words
-    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'my', 'the'}
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'my'}
     search_words = [w for w in normalized_search.split() if len(w) > 2 and w not in stop_words]
     
     if not search_words:
@@ -884,7 +884,7 @@ async def process_message(request: TextMessage):
                     # Remove common event-related words that might be in user's phrase but not in event title
                     event_name_cleaned = re.sub(r'\b(event|class|session|activity|lesson|workshop|meeting|gathering)\b', '', event_name, flags=re.IGNORECASE).strip()
                     # Remove articles
-                    event_name_cleaned = re.sub(r'^(the|a|an|my|the)\s+', '', event_name_cleaned, flags=re.IGNORECASE).strip()
+                    event_name_cleaned = re.sub(r'^(the|a|an|my)\s+', '', event_name_cleaned, flags=re.IGNORECASE).strip()
                     if event_name_cleaned and event_name_cleaned != event_name:
                         print(f"DEBUG [CANCEL]: Cleaned event_name from '{event_name}' to '{event_name_cleaned}'")
                         event_name = event_name_cleaned
