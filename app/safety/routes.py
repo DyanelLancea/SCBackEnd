@@ -72,27 +72,63 @@ def trigger_sos(sos_request: SOSRequest):
         )
         latest_location = location_response.data[0] if location_response.data else None
 
-        # Format current time in Singapore timezone
-        try:
-            if ZoneInfo:
-                sg_tz = ZoneInfo("Asia/Singapore")
-                current_time_sg = datetime.now(sg_tz)
-                time_str = current_time_sg.strftime("%B %d, %Y at %I:%M %p Singapore time")
-            else:
-                # Fallback: add 8 hours for Singapore timezone (UTC+8)
-                current_time_sg = datetime.utcnow()
-                from datetime import timedelta
-                current_time_sg = current_time_sg + timedelta(hours=8)
-                time_str = current_time_sg.strftime("%B %d, %Y at %I:%M %p Singapore time")
-        except Exception:
-            current_time_sg = datetime.utcnow()
-            time_str = current_time_sg.strftime("%B %d, %Y at %I:%M %p UTC")
+        # Format current time
+        current_time = datetime.utcnow()
+        time_str = current_time.strftime("%B %d, %Y at %I:%M %p UTC")
 
-        # Build comprehensive location information
-        location_info = sos_request.location or "Unknown location"
-        if latest_location:
-            if latest_location.get("latitude") and latest_location.get("longitude"):
-                location_info += f". GPS Coordinates: Latitude {latest_location.get('latitude')}, Longitude {latest_location.get('longitude')}"
+        # Extract area name from location (e.g., "Punggol Coast" from full address)
+        # Priority: 1) Area name from location string, 2) Latest location from DB, 3) Unknown
+        area_name = None
+        location_info = "Unknown location"
+        
+        # Try to extract area name from the location string
+        if sos_request.location:
+            location_str = sos_request.location
+            # Common area patterns in Singapore (can be extended)
+            singapore_areas = [
+                "Punggol Coast", "Punggol", "Jurong", "Tampines", "Woodlands",
+                "Yishun", "Ang Mo Kio", "Bishan", "Toa Payoh", "Orchard",
+                "Marina Bay", "Sentosa", "Changi", "Pasir Ris", "Sengkang",
+                "Hougang", "Bedok", "Clementi", "Queenstown", "Bukit Timah"
+            ]
+            
+            # Check if location contains any area name
+            for area in singapore_areas:
+                if area.lower() in location_str.lower():
+                    area_name = area
+                    break
+            
+            # If no area found, try to extract first meaningful words (usually area name)
+            if not area_name:
+                # Split by common delimiters and take first 2-3 words
+                parts = location_str.replace(',', ' ').replace('-', ' ').split()
+                if len(parts) >= 2:
+                    # Take first 2 words as potential area name
+                    area_name = ' '.join(parts[:2])
+                else:
+                    area_name = location_str
+        
+        # If no area from request, check latest location from database
+        if not area_name and latest_location:
+            # Check if location_logs has an address field
+            if latest_location.get("address"):
+                address = latest_location.get("address")
+                # Extract area from address
+                parts = address.replace(',', ' ').split()
+                if len(parts) >= 2:
+                    area_name = ' '.join(parts[:2])
+                else:
+                    area_name = address
+            # If only coordinates available, we can't extract area name - will use "Unknown location"
+        
+        # Build location message with area name only (no GPS coordinates)
+        if area_name:
+            location_info = f"Area: {area_name}"
+        elif latest_location and latest_location.get("address"):
+            # Use address from database if available
+            location_info = f"Area: {latest_location.get('address')}"
+        else:
+            location_info = "Unknown location"
 
         # Build the automated message for the phone call
         message_parts = [

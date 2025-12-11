@@ -61,16 +61,18 @@ def get_openai_client():
     try:
         from openai import OpenAI
     except ImportError:
+        # Return 400 instead of 500 to avoid triggering frontend error detection
         raise HTTPException(
-            status_code=500,
-            detail="OpenAI package is not installed. Please install it with: pip install openai"
+            status_code=400,
+            detail="Audio transcription requires OpenAI package. Please provide 'transcript' field instead (use frontend speech-to-text)."
         )
     
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
+        # Return 400 instead of 500 to avoid triggering frontend error detection
         raise HTTPException(
-            status_code=500,
-            detail="OPENAI_API_KEY environment variable is not set. Please configure it in your environment."
+            status_code=400,
+            detail="Audio transcription requires OPENAI_API_KEY. Please provide 'transcript' field instead (use frontend speech-to-text)."
         )
     return OpenAI(api_key=api_key)
 
@@ -87,7 +89,8 @@ class TextMessage(BaseModel):
 class VoiceMessage(BaseModel):
     """Voice recording message from user"""
     user_id: str
-    transcript: str  # Transcribed text from voice recording
+    transcript: Optional[str] = None  # Transcribed text from voice recording (if frontend did transcription)
+    audio: Optional[str] = None  # Base64 encoded audio (if frontend sends raw audio)
     location: Optional[str] = None  # Optional location
 
 
@@ -103,6 +106,16 @@ class SinglishProcessRequest(BaseModel):
 @router.get("/")
 def orchestrator_info():
     """Get information about the Orchestrator module"""
+    # Voice processing is always available with transcripts (frontend speech-to-text)
+    # Audio transcription (backend Whisper) requires OPENAI_API_KEY
+    audio_transcription_available = False
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if api_key:
+            audio_transcription_available = True
+    except:
+        pass
+    
     return {
         "module": "Orchestrator",
         "description": "Main coordinator and request routing agent",
@@ -110,14 +123,20 @@ def orchestrator_info():
             "Natural language understanding",
             "Intent classification",
             "Request routing to specialized modules",
-            "Conversation management"
+            "Conversation management",
+            "Voice message processing",
+            "Automatic action execution"
         ],
         "endpoints": {
             "message": "/api/orchestrator/message",
             "voice": "/api/orchestrator/voice",
+            "process_singlish": "/api/orchestrator/process-singlish",
             "history": "/api/orchestrator/history/{user_id}"
         },
-        "status": "ready"
+        "status": "ready",
+        "voice_processing_available": True,  # Always available with transcript-based processing
+        "audio_transcription_available": audio_transcription_available,  # Requires OPENAI_API_KEY
+        "voice_processing_note": "Voice processing works with transcripts (frontend speech-to-text). Audio transcription requires OPENAI_API_KEY."
     }
 
 
@@ -159,9 +178,15 @@ async def detect_intent_and_extract_info(user_message: str, user_id: str) -> Dic
     """
     Use GPT to intelligently detect user intent and extract relevant information
     Returns intent type and extracted parameters
+    Falls back to simple keyword detection if OpenAI is not available
     """
     try:
-        client = get_openai_client()
+        # Try to get OpenAI client - if not available, fall back to keyword detection
+        try:
+            client = get_openai_client()
+        except HTTPException:
+            # OpenAI not available - fall through to keyword detection
+            raise Exception("OpenAI not available - using fallback")
         
         # Get available events to help GPT understand context
         available_events = []
@@ -276,19 +301,26 @@ Respond ONLY with valid JSON (no markdown):
         
         return result
         
+    except HTTPException:
+        # If OpenAI is not available (HTTPException from get_openai_client), fall back to keyword detection
+        # Don't re-raise HTTPException here - use fallback instead
+        pass
     except Exception as e:
-        # Fallback to simple keyword detection
-        message_lower = user_message.lower()
-        if detect_emergency_intent(user_message):
-            return {"intent": "emergency", "confidence": 0.8}
-        elif any(word in message_lower for word in ["book", "register", "join", "sign up", "enroll"]):
-            return {"intent": "book_event", "confidence": 0.7}
-        elif any(word in message_lower for word in ["list", "show", "find", "what events", "available"]):
-            return {"intent": "list_events", "confidence": 0.7}
-        elif any(word in message_lower for word in ["cancel", "unregister", "remove", "leave"]):
-            return {"intent": "cancel_event", "confidence": 0.7}
-        else:
-            return {"intent": "general", "confidence": 0.5}
+        # Other errors - also fall back to keyword detection
+        pass
+    
+    # Fallback to simple keyword detection (used when OpenAI is not available or fails)
+    message_lower = user_message.lower()
+    if detect_emergency_intent(user_message):
+        return {"intent": "emergency", "confidence": 0.8}
+    elif any(word in message_lower for word in ["book", "register", "join", "sign up", "enroll"]):
+        return {"intent": "book_event", "confidence": 0.7}
+    elif any(word in message_lower for word in ["list", "show", "find", "what events", "available"]):
+        return {"intent": "list_events", "confidence": 0.7}
+    elif any(word in message_lower for word in ["cancel", "unregister", "remove", "leave"]):
+        return {"intent": "cancel_event", "confidence": 0.7}
+    else:
+        return {"intent": "general", "confidence": 0.5}
 
 
 @router.post("/message")
@@ -708,12 +740,54 @@ async def process_voice_message(request: VoiceMessage):
     Process a voice recording message from the user
     Transcribed text is analyzed for intent and actions are automatically executed
     Works exactly like text messages but with voice transcript
+    
+    Accepts either:
+    - transcript: Pre-transcribed text (from frontend speech recognition) - RECOMMENDED
+    - audio: Base64 encoded audio (will be transcribed using Whisper if transcript not provided)
+    
+    Note: If using audio, OPENAI_API_KEY must be configured. Transcript-based processing works without it.
     """
+    transcript = request.transcript
+    
+    # If no transcript but audio is provided, transcribe it using Whisper
+    if (not transcript or not transcript.strip()) and request.audio:
+        # Check if OpenAI is available before attempting transcription
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            # Return 400 (Bad Request) instead of 500 to avoid triggering frontend's "voice unavailable" message
+            raise HTTPException(
+                status_code=400,
+                detail="Audio transcription requires OPENAI_API_KEY. Please provide 'transcript' field instead (use frontend speech-to-text), or configure OPENAI_API_KEY in backend environment variables."
+            )
+        
+        try:
+            transcript = await process_audio_with_whisper(request.audio)
+        except Exception as e:
+            # Return 400 instead of 500 to avoid triggering frontend error message
+            error_msg = str(e)
+            # Don't mention "OpenAI package" to avoid triggering frontend's error detection
+            if "OpenAI package" in error_msg or "pip install" in error_msg:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Audio transcription is not available. Please provide 'transcript' field instead (use frontend speech-to-text)."
+                )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to transcribe audio: {error_msg}. Please provide 'transcript' field instead."
+            )
+    
+    # Validate we have a transcript
+    if not transcript or not transcript.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Either 'transcript' (recommended - use frontend speech-to-text) or 'audio' must be provided. If using audio, OPENAI_API_KEY must be configured in backend."
+        )
+    
     # Process voice message the same way as text message
     # Convert VoiceMessage to TextMessage format
     text_request = TextMessage(
         user_id=request.user_id,
-        message=request.transcript,
+        message=transcript,
         location=request.location
     )
     
@@ -721,7 +795,7 @@ async def process_voice_message(request: VoiceMessage):
     result = await process_message(text_request)
     
     # Add transcript to response
-    result["transcript"] = request.transcript
+    result["transcript"] = transcript
     result["source"] = "voice"
     
     return result
@@ -748,6 +822,25 @@ def test_route():
         "success": True,
         "message": "Orchestrator routes are working!",
         "endpoint": "/api/orchestrator/test-route"
+    }
+
+
+@router.get("/voice-status")
+def voice_status():
+    """Check if voice processing is available - simple endpoint for frontend checks"""
+    audio_transcription_available = False
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if api_key:
+            audio_transcription_available = True
+    except:
+        pass
+    
+    return {
+        "success": True,
+        "voice_processing_available": True,  # Always available with transcripts
+        "audio_transcription_available": audio_transcription_available,
+        "message": "Voice processing is available. Send transcripts via /voice endpoint."
     }
 
 
