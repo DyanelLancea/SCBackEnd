@@ -3,7 +3,7 @@ from typing import Optional
 import os
 from twilio.rest import Client
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.shared.supabase import get_supabase_client
@@ -288,15 +288,22 @@ def update_location(location: LocationRequest):
 
 # Get Current Location Endpoint
 @router.get("/location/{user_id}")
-def get_current_location(user_id: str):
+def get_current_location(
+    user_id: str,
+    role: Optional[str] = Query(None, description="User role: 'caregiver' or 'elderly'. If 'caregiver', returns linked elderly user's location.")
+):
     """
     Get the most recent location for a user (caregiver or elderly) from location_logs table.
     Returns the user's current location from the database, not a hardcoded value.
     
+    Query Parameters:
+    - role: Optional. If 'caregiver', finds the linked elderly user and returns their location.
+            If 'elderly' or not provided, returns the location for the given user_id.
+    
     This endpoint works for:
-    - Elderly users viewing their own location
-    - Caregivers viewing an elderly person's location (pass elderly user_id)
-    - Any user viewing their own location
+    - Elderly users viewing their own location (role='elderly' or no role)
+    - Caregivers viewing their linked elderly person's location (role='caregiver')
+    - Any user viewing their own location (no role parameter)
     
     The location is always fetched from the database, never hardcoded.
     """
@@ -307,11 +314,76 @@ def get_current_location(user_id: str):
         # Get Supabase client
         supabase = get_supabase_client()
 
+        # If role is 'caregiver', find the linked elderly user first
+        target_user_id = user_id
+        if role and role.lower() == "caregiver":
+            # Find elderly user(s) linked to this caregiver
+            # The caregivers table structure: user_id = elderly user, caregiver_id = caregiver
+            # We need to find records where caregiver_id matches the logged-in caregiver
+            caregivers_response = (
+                supabase.table("caregivers")
+                .select("*")
+                .eq("caregiver_id", user_id)  # Try caregiver_id field first
+                .execute()
+            )
+            
+            # If no results, try alternative field names
+            if not caregivers_response.data or len(caregivers_response.data) == 0:
+                # Try with different possible field structures
+                # Some tables might have: caregiver_user_id, linked_caregiver_id, etc.
+                all_caregivers = supabase.table("caregivers").select("*").execute()
+                if all_caregivers.data:
+                    # Check all records to find one where any field matches the caregiver user_id
+                    for record in all_caregivers.data:
+                        # Check if any field in the record matches the caregiver user_id
+                        if (record.get("caregiver_id") == user_id or 
+                            record.get("caregiver_user_id") == user_id or
+                            record.get("linked_caregiver_id") == user_id):
+                            caregivers_response.data = [record]
+                            break
+            
+            if caregivers_response.data and len(caregivers_response.data) > 0:
+                # Get the first linked elderly user_id
+                # The user_id field in caregivers table refers to the elderly user
+                caregiver_record = caregivers_response.data[0]
+                target_user_id = caregiver_record.get("user_id")
+                
+                if not target_user_id or target_user_id == user_id:
+                    # If we couldn't find the elderly user, return error
+                    return {
+                        "success": False,
+                        "message": "No linked elderly user found for this caregiver",
+                        "user_id": user_id,
+                        "role": "caregiver",
+                        "current_location": None,
+                        "location_display": "Location not available - No linked elderly user",
+                        "latitude": None,
+                        "longitude": None,
+                        "address": None,
+                        "timestamp": None,
+                    }
+            else:
+                # No caregiver record found - maybe the table structure is different
+                # Try querying where user_id might be the caregiver and we need to find elderly
+                # For now, return a helpful error message
+                return {
+                    "success": False,
+                    "message": "Caregiver record not found. Please ensure the caregiver is linked to an elderly user.",
+                    "user_id": user_id,
+                    "role": "caregiver",
+                    "current_location": None,
+                    "location_display": "Location not available - Caregiver not linked",
+                    "latitude": None,
+                    "longitude": None,
+                    "address": None,
+                    "timestamp": None,
+                }
+
         # Get most recent location from database (never hardcoded)
         location_response = (
             supabase.table("location_logs")
             .select("*")
-            .eq("user_id", user_id)
+            .eq("user_id", target_user_id)
             .order("timestamp", desc=True)
             .limit(1)
             .execute()
