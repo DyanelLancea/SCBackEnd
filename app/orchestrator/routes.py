@@ -777,19 +777,34 @@ async def process_voice_message(request: VoiceMessage):
             
             try:
                 transcript = await process_audio_with_whisper(request.audio)
+            except HTTPException as e:
+                # If OpenAI is not available, return helpful response instead of error
+                if "OPENAI_API_KEY" in str(e.detail) or "OpenAI package" in str(e.detail):
+                    return {
+                        "success": False,
+                        "intent": "general",
+                        "message": "Audio transcription is not available. Please use your browser's speech-to-text feature and send the transcript instead of audio.",
+                        "user_id": request.user_id,
+                        "error": "OPENAI_API_KEY not configured",
+                        "suggestion": "Use frontend speech-to-text (Web Speech API) and send 'transcript' field instead of 'audio'",
+                        "transcript": None,
+                        "source": "voice"
+                    }
+                # Re-raise other HTTPExceptions
+                raise
             except Exception as e:
-                # Return 400 instead of 500 to avoid triggering frontend error message
+                # Return helpful response instead of error
                 error_msg = str(e)
-                # Don't mention "OpenAI package" to avoid triggering frontend's error detection
-                if "OpenAI package" in error_msg or "pip install" in error_msg:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Audio transcription is not available. Please provide 'transcript' field instead (use frontend speech-to-text)."
-                    )
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Failed to transcribe audio: {error_msg}. Please provide 'transcript' field instead."
-                )
+                return {
+                    "success": False,
+                    "intent": "general",
+                    "message": f"Audio transcription failed: {error_msg}. Please use your browser's speech-to-text feature and send the transcript instead.",
+                    "user_id": request.user_id,
+                    "error": error_msg,
+                    "suggestion": "Use frontend speech-to-text (Web Speech API) and send 'transcript' field instead of 'audio'",
+                    "transcript": None,
+                    "source": "voice"
+                }
         
         # Validate we have a transcript
         if not transcript or not transcript.strip():
