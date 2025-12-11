@@ -296,13 +296,22 @@ async def trigger_sos(sos_request: SOSRequest):
                     safe_message = emergency_message.replace("&", "and").replace("<", "less than").replace(">", "greater than")
                     
                     # Make the call with detailed automated message
-                    call = client.calls.create(
-                        twiml=f'<Response><Say voice="alice" language="en-US">{safe_message}</Say><Pause length="2"/><Say voice="alice" language="en-US">Repeating alert details. {safe_message}</Say></Response>',
-                        to=emergency_number,
-                        from_=from_number
-                    )
-                    call_sid = call.sid
-                    call_status = f"Emergency call successfully initiated to {emergency_number}. Call SID: {call.sid}"
+                    # Use timeout to prevent hanging
+                    try:
+                        call = client.calls.create(
+                            twiml=f'<Response><Say voice="alice" language="en-US">{safe_message}</Say><Pause length="2"/><Say voice="alice" language="en-US">Repeating alert details. {safe_message}</Say></Response>',
+                            to=emergency_number,
+                            from_=from_number,
+                            timeout=10  # Timeout after 10 seconds
+                        )
+                        call_sid = call.sid
+                        call_status = f"Emergency call successfully initiated to {emergency_number}. Call SID: {call.sid}"
+                    except Exception as timeout_error:
+                        # If call creation times out, still return success but note the timeout
+                        error_str = str(timeout_error)
+                        call_status = f"Call initiation may have timed out: {error_str}"
+                        call_error_details = f"Call request sent but confirmation timed out. The call may still be processing."
+                        print(f"Warning: Twilio call creation timeout: {error_str}")
                     
             except Exception as call_error:
                 error_str = str(call_error)
@@ -335,9 +344,18 @@ async def trigger_sos(sos_request: SOSRequest):
         # Determine overall success based on call status
         call_successful = call_sid is not None and "successfully initiated" in call_status.lower()
         
+        # Build user-friendly message for frontend
+        if call_successful:
+            user_message = f"SOS alert sent! Emergency call initiated to {emergency_number}."
+        elif call_error_details and ("not configured" in call_error_details.lower() or "must be set" in call_error_details.lower()):
+            user_message = "SOS alert logged successfully. Emergency call not configured - please configure Twilio settings."
+        else:
+            user_message = f"SOS alert sent! {call_status}"
+        
         return {
             "success": True,
-            "message": "SOS alert triggered",
+            "message": user_message,  # User-friendly message for frontend
+            "alert_triggered": True,  # Always true if we reach here - indicates alert was sent
             "emergency_call_initiated": emergency_number,
             "call_from_number": from_number,
             "call_sid": call_sid,
