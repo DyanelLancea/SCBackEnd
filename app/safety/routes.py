@@ -146,27 +146,9 @@ async def trigger_sos(sos_request: SOSRequest):
         # Get Supabase client
         supabase = get_supabase_client()
 
-        # Insert SOS log directly (remove user_id foreign key constraint from database)
-        sos_data = {
-            "user_id": sos_request.user_id,
-            "location": sos_request.location,
-            "message": sos_request.message,
-            "timestamp": datetime.utcnow().isoformat(),
-            "status": "active",
-        }
-        
-        sos_response = supabase.table("sos_logs").insert(sos_data).execute()
-
-        # Get latest location data if available
-        location_response = (
-            supabase.table("location_logs")
-            .select("*")
-            .eq("user_id", sos_request.user_id)
-            .order("timestamp", desc=True)
-            .limit(1)
-            .execute()
-        )
-        latest_location = location_response.data[0] if location_response.data else None
+        # Skip database operations - just prepare for emergency call
+        sos_response = {"data": [{"id": "temp-sos-id", "user_id": sos_request.user_id}]}
+        latest_location = None
 
         # Format current time in Singapore timezone (SGT - UTC+8)
         if ZoneInfo:
@@ -332,14 +314,8 @@ async def trigger_sos(sos_request: SOSRequest):
                     elif "21211" in error_str:
                         call_error_details = f"Invalid phone number format: {emergency_number}. Check the number format."
         
-        # Find linked caregivers
-        caregivers_response = (
-            supabase.table("caregivers")
-            .select("*")
-            .eq("user_id", sos_request.user_id)
-            .execute()
-        )
-        caregivers = caregivers_response.data if caregivers_response.data else []
+        # Skip caregiver lookup for now
+        caregivers = []
 
         # Determine overall success based on call status
         call_successful = call_sid is not None and "successfully initiated" in call_status.lower()
@@ -448,7 +424,9 @@ async def update_location(location: LocationRequest):
 @router.get("/location/{user_id}")
 async def get_current_location(
     user_id: str,
-    role: Optional[str] = Query(None, description="User role: 'caregiver' or 'elderly'. If 'caregiver', returns linked elderly user's location.")
+    role: Optional[str] = Query(None, description="User role: 'caregiver' or 'elderly'."),
+    lat: Optional[float] = Query(None, description="Current latitude"),
+    lng: Optional[float] = Query(None, description="Current longitude")
 ):
     """
     Get the most recent location for a user (caregiver or elderly) from location_logs table.
