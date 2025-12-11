@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 import os
+import httpx
 from twilio.rest import Client
 
 from fastapi import APIRouter, HTTPException, Query
@@ -21,6 +22,61 @@ except ImportError:
 router = APIRouter()
 
 
+async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
+    """
+    Convert coordinates to a readable address using OpenStreetMap Nominatim API.
+    Returns area name like "Punggol Coast" or full address.
+    """
+    try:
+        # Use OpenStreetMap Nominatim API (free, no API key required)
+        url = f"https://nominatim.openstreetmap.org/reverse"
+        params = {
+            "lat": latitude,
+            "lon": longitude,
+            "format": "json",
+            "addressdetails": 1,
+            "zoom": 18,  # Higher zoom for more detailed address
+        }
+        headers = {
+            "User-Agent": "SCBackend-LocationService/1.0"  # Required by Nominatim
+        }
+        
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url, params=params, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                address = data.get("address", {})
+                
+                # Try to extract a readable area name (Singapore-specific)
+                # Priority: suburb > neighbourhood > city > state
+                area_name = (
+                    address.get("suburb") or
+                    address.get("neighbourhood") or
+                    address.get("city_district") or
+                    address.get("city") or
+                    address.get("state")
+                )
+                
+                # If we have a good area name, return it
+                if area_name:
+                    return area_name
+                
+                # Otherwise, construct a readable address
+                display_name = data.get("display_name", "")
+                if display_name:
+                    # Extract first part of address (usually the area)
+                    parts = display_name.split(",")
+                    if len(parts) > 0:
+                        return parts[0].strip()
+                
+                return display_name
+    except Exception as e:
+        print(f"Reverse geocoding failed: {e}")
+        return None
+    
+    return None
+
+
 # Request Models
 class SOSRequest(BaseModel):
     user_id: str
@@ -32,6 +88,7 @@ class LocationRequest(BaseModel):
     user_id: str
     latitude: float
     longitude: float
+    address: Optional[str] = None  # Optional address - if not provided, will be reverse geocoded
 
 
 # SOS Endpoint
@@ -254,9 +311,11 @@ def trigger_emergency(sos_request: SOSRequest):
 
 # Location Endpoint
 @router.post("/location")
-def update_location(location: LocationRequest):
+async def update_location(location: LocationRequest):
     """
     Store user's current location in location_logs table.
+    If address is not provided, performs reverse geocoding to get readable address
+    like "Punggol Coast" from coordinates.
     """
     try:
         if not location.user_id:
@@ -265,10 +324,20 @@ def update_location(location: LocationRequest):
         # Get Supabase client
         supabase = get_supabase_client()
 
+        # Get readable address - use provided address or reverse geocode
+        address = location.address
+        if not address:
+            # Perform reverse geocoding to get readable address from coordinates
+            address = await reverse_geocode(location.latitude, location.longitude)
+            if not address:
+                # Fallback: format coordinates as readable string
+                address = f"{location.latitude:.6f}, {location.longitude:.6f}"
+
         location_data = {
             "user_id": location.user_id,
             "latitude": location.latitude,
             "longitude": location.longitude,
+            "address": address,  # Store the readable address
             "timestamp": datetime.utcnow().isoformat(),
         }
         response = supabase.table("location_logs").insert(location_data).execute()
@@ -277,6 +346,7 @@ def update_location(location: LocationRequest):
             "success": True,
             "message": "Location stored",
             "data": response.data[0] if response.data else None,
+            "address": address,  # Return the readable address
         }
     except HTTPException:
         raise
