@@ -943,22 +943,37 @@ async def process_singlish(request: SinglishProcessRequest):
             )
         
         # Step 2: Process with GPT for translation and analysis
+        # Check if OpenAI is available for translation
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            # If no OpenAI key, return a simple response without translation
+            return {
+                "success": True,
+                "user_id": request.user_id,
+                "singlish_raw": transcript,
+                "clean_english": transcript,  # Use transcript as-is if no translation available
+                "sentiment": "neutral",
+                "tone": "informal",
+                "note": "Translation unavailable - OPENAI_API_KEY not configured. Using original transcript."
+            }
+        
         try:
             result = await translate_singlish_to_english(transcript)
         except HTTPException:
             raise
         except Exception as e:
             error_msg = str(e)
-            # Check if it's an OpenAI configuration issue
-            if "OPENAI_API_KEY" in error_msg or "OpenAI" in error_msg:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Translation requires OpenAI configuration: {error_msg}"
-                )
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error processing Singlish translation: {error_msg}"
-            )
+            # If translation fails, return the original transcript
+            print(f"Translation failed: {error_msg}")
+            return {
+                "success": True,
+                "user_id": request.user_id,
+                "singlish_raw": transcript,
+                "clean_english": transcript,  # Fallback to original
+                "sentiment": "neutral",
+                "tone": "informal",
+                "note": f"Translation unavailable: {error_msg}. Using original transcript."
+            }
         
         return {
             "success": True,
