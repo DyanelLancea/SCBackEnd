@@ -520,8 +520,13 @@ async def process_message(request: TextMessage):
     try:
         intent_data = await detect_intent_and_extract_info(request.message, request.user_id)
         intent = intent_data.get("intent", "general")
-    except:
-        # Fallback to simple detection
+    except HTTPException:
+        # Re-raise HTTPExceptions (they're already properly formatted)
+        raise
+    except Exception as e:
+        # Fallback to simple detection if GPT fails
+        error_msg = str(e)
+        print(f"Warning: Intent detection failed, using fallback: {error_msg}")
         if detect_emergency_intent(request.message):
             intent = "emergency"
         else:
@@ -927,11 +932,22 @@ Answer the user's question helpfully. If they're asking about how to use the pla
     
     except (httpx.ConnectError, httpx.ConnectTimeout) as e:
         # Connection error - API_BASE_URL likely not set correctly
-        message = f"Connection error: Could not reach backend API. Please ensure API_BASE_URL is set to your backend's public URL (e.g., https://your-backend.onrender.com). Error: {str(e)}"
-        action_result = {"error": str(e), "error_type": "connection_failed"}
+        error_msg = str(e)
+        message = f"Connection error: Could not reach backend API. Please ensure API_BASE_URL is set to your backend's public URL (e.g., https://your-backend.onrender.com). Error: {error_msg}"
+        action_result = {"error": error_msg, "error_type": "connection_failed"}
+        print(f"Connection error in process_message: {error_msg}")
+    except HTTPException:
+        # Re-raise HTTPExceptions (they're already properly formatted)
+        raise
     except Exception as e:
-        message = f"Error processing your request: {str(e)}"
-        action_result = {"error": str(e)}
+        # Catch any other errors and return a proper response instead of crashing
+        error_msg = str(e)
+        import traceback
+        error_traceback = traceback.format_exc()
+        print(f"Error in process_message action execution: {error_msg}")
+        print(f"Traceback: {error_traceback}")
+        message = f"Error processing your request: {error_msg}"
+        action_result = {"error": error_msg}
     
     response = {
         "success": True,
@@ -1015,31 +1031,6 @@ async def process_voice_message(request: VoiceMessage):
         # Use the same processing logic
         try:
             result = await process_message(text_request)
-            
-            # Ensure result is a dictionary
-            if not isinstance(result, dict):
-                result = {
-                    "success": True,
-                    "intent": "general",
-                    "message": str(result) if result else "Message processed",
-                    "user_id": request.user_id
-                }
-            
-            # Ensure required fields are present
-            if "success" not in result:
-                result["success"] = True
-            if "intent" not in result:
-                result["intent"] = "general"
-            if "message" not in result:
-                result["message"] = "Voice message processed"
-            if "user_id" not in result:
-                result["user_id"] = request.user_id
-            
-            # Add transcript to response
-            result["transcript"] = transcript
-            result["source"] = "voice"
-            
-            return result
         except HTTPException:
             # Re-raise HTTPExceptions (they're already properly formatted)
             raise
@@ -1054,13 +1045,60 @@ async def process_voice_message(request: VoiceMessage):
                 status_code=500,
                 detail=f"Failed to process message: {error_msg}"
             )
+        
+        # Ensure result is a dictionary
+        if not isinstance(result, dict):
+            result = {
+                "success": True,
+                "intent": "general",
+                "message": str(result) if result else "Message processed",
+                "user_id": request.user_id
+            }
+        
+        # Ensure required fields are present
+        if "success" not in result:
+            result["success"] = True
+        if "intent" not in result:
+            result["intent"] = "general"
+        if "message" not in result:
+            result["message"] = "Voice message processed"
+        if "user_id" not in result:
+            result["user_id"] = request.user_id
+        
+        # Add transcript to response
+        result["transcript"] = transcript
+        result["source"] = "voice"
+        
+        # Ensure frontend knows actions were executed automatically
+        # If action_executed is True, make sure it's clear in the response
+        try:
+            action_executed = result.get("action_executed", False)
+            sos_triggered = result.get("sos_triggered", False)
+            should_navigate = result.get("should_navigate", False)
+            
+            if action_executed or sos_triggered or should_navigate:
+                result["voice_action_completed"] = True
+                result["requires_manual_action"] = False
+            else:
+                result["voice_action_completed"] = False
+                result["requires_manual_action"] = True
+        except Exception as e:
+            # If checking action status fails, default to manual action required
+            print(f"Warning: Could not determine action status: {e}")
+            result["voice_action_completed"] = False
+            result["requires_manual_action"] = True
+        
+        return result
     except HTTPException:
         # Re-raise HTTPExceptions (they're already properly formatted)
         raise
     except Exception as e:
         # Catch any other unexpected errors and return a proper error response
+        import traceback
         error_msg = str(e)
+        error_traceback = traceback.format_exc()
         print(f"Unexpected error in process_voice_message: {error_msg}")
+        print(f"Traceback: {error_traceback}")
         raise HTTPException(
             status_code=500,
             detail=f"Backend server error: {error_msg}. Please try again later or contact support."
