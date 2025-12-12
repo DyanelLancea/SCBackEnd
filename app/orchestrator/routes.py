@@ -189,18 +189,36 @@ def orchestrator_info():
 def detect_emergency_intent(text: str) -> bool:
     """
     Detect if message contains emergency intent keywords
-    Any "help" request is considered emergency
+    "help" is emergency UNLESS it's about events/booking
     """
     message_lower = text.lower()
     
-    # Any help request is emergency
-    help_keywords = [
-        "help", "emergency", "sos", "urgent", "danger", "accident",
+    # Strong emergency keywords (always emergency)
+    strong_emergency_keywords = [
+        "emergency", "sos", "urgent", "danger", "accident",
         "injured", "hurt", "pain", "rescue", "ambulance", 
         "hospital", "911", "999", "need assistance"
     ]
     
-    return any(keyword in message_lower for keyword in help_keywords)
+    # Check for strong emergency keywords first
+    if any(keyword in message_lower for keyword in strong_emergency_keywords):
+        return True
+    
+    # Check if "help" appears with event-related words (not emergency)
+    event_operation_words = [
+        "event", "register", "cancel", "remove", "book", "unregister",
+        "join", "leave", "withdraw", "delete", "update", "change", "booking"
+    ]
+    
+    has_help = "help" in message_lower
+    has_event_operation = any(word in message_lower for word in event_operation_words)
+    
+    # If "help" appears with event operations, it's NOT an emergency
+    if has_help and has_event_operation:
+        return False
+    
+    # "help" alone or without event context = emergency
+    return has_help
 
 
 def validate_and_get_uuid(value: Any) -> Optional[str]:
