@@ -116,6 +116,106 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
     return None
 
 
+async def find_nearest_mrt(latitude: float, longitude: float) -> Optional[str]:
+    """
+    Find the nearest MRT station to given coordinates.
+    Uses Overpass API to query OpenStreetMap for MRT stations in Singapore.
+    Returns the name of the nearest MRT station.
+    """
+    try:
+        # Singapore MRT stations with their coordinates (major stations)
+        # Format: {"station_name": (lat, lng)}
+        mrt_stations = {
+            "Punggol Coast MRT": (1.410576, 103.893386),
+            "Punggol MRT": (1.4047, 103.9023),
+            "Sengkang MRT": (1.3915, 103.8950),
+            "Buangkok MRT": (1.3833, 103.8933),
+            "Hougang MRT": (1.3711, 103.8928),
+            "Kovan MRT": (1.3592, 103.8850),
+            "Serangoon MRT": (1.3500, 103.8728),
+            "Lorong Chuan MRT": (1.3517, 103.8639),
+            "Bishan MRT": (1.3506, 103.8481),
+            "Ang Mo Kio MRT": (1.3692, 103.8494),
+            "Yio Chu Kang MRT": (1.3817, 103.8450),
+            "Khatib MRT": (1.4172, 103.8328),
+            "Yishun MRT": (1.4294, 103.8350),
+            "Sembawang MRT": (1.4489, 103.8200),
+            "Canberra MRT": (1.4431, 103.8297),
+            "Admiralty MRT": (1.4406, 103.8011),
+            "Woodlands MRT": (1.4367, 103.7861),
+            "Woodlands North MRT": (1.4478, 103.7847),
+            "Woodlands South MRT": (1.4272, 103.7917),
+            "Jurong East MRT": (1.3331, 103.7422),
+            "Jurong West MRT": (1.3394, 103.7056),
+            "Boon Lay MRT": (1.3383, 103.7056),
+            "Pioneer MRT": (1.3375, 103.6972),
+            "Joo Koon MRT": (1.3278, 103.6783),
+            "Gul Circle MRT": (1.3194, 103.6606),
+            "Tuas Crescent MRT": (1.3211, 103.6492),
+            "Tuas West Road MRT": (1.3297, 103.6397),
+            "Tuas Link MRT": (1.3403, 103.6367),
+            "Choa Chu Kang MRT": (1.3850, 103.7444),
+            "Yew Tee MRT": (1.3972, 103.7472),
+            "Kranji MRT": (1.4253, 103.7622),
+            "Marsiling MRT": (1.4325, 103.7781),
+            "Orchard MRT": (1.3042, 103.8325),
+            "Somerset MRT": (1.3003, 103.8386),
+            "Dhoby Ghaut MRT": (1.2992, 103.8458),
+            "City Hall MRT": (1.2931, 103.8525),
+            "Raffles Place MRT": (1.2842, 103.8514),
+            "Marina Bay MRT": (1.2806, 103.8547),
+            "Bayfront MRT": (1.2817, 103.8592),
+            "Promenade MRT": (1.2931, 103.8603),
+            "Esplanade MRT": (1.2931, 1.2931),
+            "Bras Basah MRT": (1.2969, 1.2969),
+            "Bugis MRT": (1.3008, 103.8558),
+            "Lavender MRT": (1.3072, 103.8631),
+            "Kallang MRT": (1.3114, 103.8714),
+            "Aljunied MRT": (1.3164, 103.8828),
+            "Paya Lebar MRT": (1.3175, 103.8922),
+            "Eunos MRT": (1.3197, 103.9031),
+            "Kembangan MRT": (1.3208, 103.9128),
+            "Bedok MRT": (1.3239, 103.9297),
+            "Tanah Merah MRT": (1.3272, 103.9464),
+            "Simei MRT": (1.3433, 103.9531),
+            "Tampines MRT": (1.3525, 103.9453),
+            "Pasir Ris MRT": (1.3656, 103.9494),
+            "Tampines West MRT": (1.3456, 103.9403),
+            "Tampines East MRT": (1.3567, 103.9514),
+        }
+        
+        # Calculate distance to each station and find nearest
+        import math
+        
+        def calculate_distance(lat1, lon1, lat2, lon2):
+            """Calculate distance between two coordinates in kilometers using Haversine formula"""
+            R = 6371  # Earth radius in km
+            dlat = math.radians(lat2 - lat1)
+            dlon = math.radians(lon2 - lon1)
+            a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+            c = 2 * math.asin(math.sqrt(a))
+            return R * c
+        
+        nearest_station = None
+        min_distance = float('inf')
+        
+        for station_name, (station_lat, station_lng) in mrt_stations.items():
+            distance = calculate_distance(latitude, longitude, station_lat, station_lng)
+            if distance < min_distance:
+                min_distance = distance
+                nearest_station = station_name
+        
+        # Only return if within reasonable distance (5km)
+        if nearest_station and min_distance <= 5.0:
+            return nearest_station
+        
+        return None
+        
+    except Exception as e:
+        print(f"Finding nearest MRT failed: {e}")
+        return None
+
+
 # Request Models
 class SOSRequest(BaseModel):
     user_id: str
@@ -229,20 +329,47 @@ async def trigger_sos(sos_request: SOSRequest):
             location_info = "Unknown location"
 
         # Build the automated message for the phone call
-        # Priority: Use frontend's ready-to-use message, fallback to building our own
+        # Format: "the location is at xxx, the nearest mrt is xxxxx the timing of this is xxxx"
+        
+        # Get location address
+        location_address = "Unknown location"
+        if sos_request.location:
+            # Try to extract address from location string
+            location_address = sos_request.location
+            # If location contains coordinates, try to reverse geocode
+            if sos_request.latitude and sos_request.longitude:
+                geocoded_address = await reverse_geocode(sos_request.latitude, sos_request.longitude)
+                if geocoded_address:
+                    location_address = geocoded_address
+        elif sos_request.latitude and sos_request.longitude:
+            # Reverse geocode from coordinates
+            geocoded_address = await reverse_geocode(sos_request.latitude, sos_request.longitude)
+            if geocoded_address:
+                location_address = geocoded_address
+        
+        # Find nearest MRT station
+        nearest_mrt = "Unknown MRT"
+        if sos_request.latitude and sos_request.longitude:
+            mrt_station = await find_nearest_mrt(sos_request.latitude, sos_request.longitude)
+            if mrt_station:
+                nearest_mrt = mrt_station
+        
+        # Build message in required format
+        # Priority: Use frontend's ready-to-use message if it contains all required info, otherwise build our own
         if sos_request.message or sos_request.text:
-            # Frontend provides a complete, ready-to-speak message
-            # Use it directly - it's already formatted with location details, MRT station, and coordinates
-            emergency_message = sos_request.message or sos_request.text
+            # Check if frontend message already has the required format
+            frontend_message = sos_request.message or sos_request.text
+            # If message contains "location is at" and "nearest mrt" and "timing", use it
+            if ("location is at" in frontend_message.lower() and 
+                "nearest mrt" in frontend_message.lower() and
+                "timing" in frontend_message.lower()):
+                emergency_message = frontend_message
+            else:
+                # Frontend message doesn't have required format, build our own
+                emergency_message = f"the location is at {location_address}, the nearest mrt is {nearest_mrt} the timing of this is {time_str}"
         else:
-            # Fallback: Build message if frontend doesn't provide one
-            message_parts = [
-                "Emergency SOS Alert.",
-                f"Alert triggered on {time_str}.",
-                f"Location: {location_info}.",
-            ]
-            message_parts.append("This requires immediate attention. Please respond as soon as possible.")
-            emergency_message = " ".join(message_parts)
+            # Build message in required format: "the location is at xxx, the nearest mrt is xxxxx the timing of this is xxxx"
+            emergency_message = f"the location is at {location_address}, the nearest mrt is {nearest_mrt} the timing of this is {time_str}"
 
         # Make emergency call using Twilio
         # Get phone numbers from environment variables

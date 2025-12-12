@@ -120,6 +120,8 @@ class TextMessage(BaseModel):
     user_id: str
     message: str
     location: Optional[str] = None  # Optional location from voice/message
+    latitude: Optional[float] = None  # GPS latitude coordinate
+    longitude: Optional[float] = None  # GPS longitude coordinate
 
 
 class VoiceMessage(BaseModel):
@@ -622,14 +624,69 @@ async def process_message(request: TextMessage):
                         if account_sid and auth_token:
                             twilio_client = TwilioClient(account_sid, auth_token)
                             
-                            # Use frontend's ready-to-use message if provided, otherwise build our own
-                            if request.message:
-                                # Frontend provides complete message with location details, MRT station, and coordinates
-                                emergency_message = request.message
-                            elif request.location:
-                                emergency_message = f"Emergency SOS Alert. Location: {request.location}."
+                            # Build message in required format: "the location is at xxx, the nearest mrt is xxxxx the timing of this is xxxx"
+                            from datetime import datetime
+                            try:
+                                from zoneinfo import ZoneInfo
+                            except ImportError:
+                                try:
+                                    from backports.zoneinfo import ZoneInfo
+                                except ImportError:
+                                    ZoneInfo = None
+                            
+                            # Import reverse geocoding and MRT finding functions
+                            from app.safety.routes import reverse_geocode, find_nearest_mrt
+                            
+                            # Format current time in Singapore timezone (SGT - UTC+8)
+                            if ZoneInfo:
+                                singapore_tz = ZoneInfo("Asia/Singapore")
+                                current_time = datetime.now(singapore_tz)
+                                time_str = current_time.strftime("%B %d, %Y at %I:%M %p SGT")
                             else:
-                                emergency_message = "Emergency SOS Alert. Location not available."
+                                from datetime import timedelta
+                                current_time = datetime.utcnow() + timedelta(hours=8)
+                                time_str = current_time.strftime("%B %d, %Y at %I:%M %p SGT")
+                            
+                            # Get location address
+                            location_address = "Unknown location"
+                            if request.location:
+                                location_address = request.location
+                            
+                            # If we have coordinates, get better address and find MRT
+                            if request.latitude and request.longitude:
+                                # Try to reverse geocode for better address
+                                geocoded_address = await reverse_geocode(request.latitude, request.longitude)
+                                if geocoded_address:
+                                    location_address = geocoded_address
+                                
+                                # Find nearest MRT station
+                                mrt_station = await find_nearest_mrt(request.latitude, request.longitude)
+                                if mrt_station:
+                                    nearest_mrt = mrt_station
+                                else:
+                                    nearest_mrt = "Unknown MRT"
+                            else:
+                                # Try to extract MRT from location string if it mentions MRT
+                                nearest_mrt = "Unknown MRT"
+                                if request.location and "mrt" in request.location.lower():
+                                    import re
+                                    mrt_match = re.search(r'([A-Za-z\s]+MRT)', request.location, re.IGNORECASE)
+                                    if mrt_match:
+                                        nearest_mrt = mrt_match.group(1).strip()
+                            
+                            # Build message in required format
+                            if request.message:
+                                # Check if message already has required format
+                                if ("location is at" in request.message.lower() and 
+                                    "nearest mrt" in request.message.lower() and
+                                    "timing" in request.message.lower()):
+                                    emergency_message = request.message
+                                else:
+                                    # Build message with required format
+                                    emergency_message = f"the location is at {location_address}, the nearest mrt is {nearest_mrt} the timing of this is {time_str}"
+                            else:
+                                # Build message in required format
+                                emergency_message = f"the location is at {location_address}, the nearest mrt is {nearest_mrt} the timing of this is {time_str}"
                             
                             call = twilio_client.calls.create(
                                 twiml=f'<Response><Say voice="alice">{emergency_message}</Say></Response>',
