@@ -44,10 +44,14 @@ def trigger_sos(sos_request: SOSRequest):
             if account_sid and auth_token:
                 client = Client(account_sid, auth_token)
                 
+                # Get user's current address for the call
+                user_address = "Location not available"
                 if sos_request.location:
-                    message = f"Emergency SOS Alert. Location: {sos_request.location}."
+                    user_address = sos_request.location
                 else:
-                    message = "Emergency SOS Alert. Location not available."
+                    user_address = "Current location"
+                
+                message = f"Emergency SOS Alert. Address: {user_address}."
                 
                 call = client.calls.create(
                     twiml=f'<Response><Say voice="alice">{message}</Say></Response>',

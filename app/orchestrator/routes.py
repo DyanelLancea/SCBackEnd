@@ -189,48 +189,18 @@ def orchestrator_info():
 def detect_emergency_intent(text: str) -> bool:
     """
     Detect if message contains emergency intent keywords
-    Context-aware: "help" alone is not enough - must be in emergency context
+    Any "help" request is considered emergency
     """
     message_lower = text.lower()
     
-    # Strong emergency indicators (always emergency)
-    strong_emergency_keywords = [
-        "emergency", "sos", "urgent", "danger", "accident",
+    # Any help request is emergency
+    help_keywords = [
+        "help", "emergency", "sos", "urgent", "danger", "accident",
         "injured", "hurt", "pain", "rescue", "ambulance", 
-        "hospital", "911", "999", "call help", "need help immediately"
+        "hospital", "911", "999", "need assistance"
     ]
     
-    # Check for strong emergency keywords first
-    if any(keyword in message_lower for keyword in strong_emergency_keywords):
-        return True
-    
-    # "help" is only emergency if it's NOT in the context of event operations
-    # Check if "help" appears with event-related words (not emergency)
-    event_operation_words = [
-        "event", "register", "cancel", "remove", "book", "unregister",
-        "join", "leave", "withdraw", "delete", "update", "change"
-    ]
-    
-    has_help = "help" in message_lower
-    has_event_operation = any(word in message_lower for word in event_operation_words)
-    
-    # If "help" appears with event operations, it's NOT an emergency
-    if has_help and has_event_operation:
-        return False
-    
-    # "help" alone or with emergency context = emergency
-    if has_help:
-        # Additional check: is it clearly about events? If so, not emergency
-        if any(word in message_lower for word in ["event", "booking", "registration"]):
-            return False
-        return True
-    
-    # Other emergency indicators
-    emergency_phrases = [
-        "need assistance", "call for help", "immediate help",
-        "help me now", "help please emergency"
-    ]
-    return any(phrase in message_lower for phrase in emergency_phrases)
+    return any(keyword in message_lower for keyword in help_keywords)
 
 
 def validate_and_get_uuid(value: Any) -> Optional[str]:
@@ -634,11 +604,15 @@ async def process_message(request: TextMessage):
                         if account_sid and auth_token:
                             twilio_client = TwilioClient(account_sid, auth_token)
                             
-                            # Same message format as SOS button - only speak location
+                            # Get user's current address for the call
+                            user_address = "Location not available"
                             if request.location:
-                                emergency_message = f"Emergency SOS Alert. Location: {request.location}."
+                                user_address = request.location
                             else:
-                                emergency_message = "Emergency SOS Alert. Location not available."
+                                # Try to get user's current location from frontend or use generic
+                                user_address = "Current location"
+                            
+                            emergency_message = f"Emergency SOS Alert. Address: {user_address}."
                             
                             call = twilio_client.calls.create(
                                 twiml=f'<Response><Say voice="alice">{emergency_message}</Say></Response>',
