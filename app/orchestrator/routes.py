@@ -618,23 +618,71 @@ async def process_message(request: TextMessage):
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             if intent == "emergency":
-                # Automatically trigger SOS call
-                sos_response = await client.post(
-                    f"{base_url}/api/safety/sos",
-                    json={
-                        "user_id": request.user_id,
-                        "location": request.location,
-                        "message": request.message
-                    }
-                )
-                if sos_response.status_code == 200:
-                    action_result = sos_response.json()
-                    sos_triggered = action_result.get("call_successful", False)
-                    message = "Emergency SOS call has been triggered automatically. Help is on the way!"
-                    action_executed = True
+                # Automatically trigger SOS call with same logic as SOS button
+                import os
+                from twilio.rest import Client as TwilioClient
+                
+                # Use same emergency call logic as SOS button
+                emergency_number = "+6598631975"
+                from_number = os.getenv("TWILIO_PHONE_NUMBER")
+                
+                if from_number:
+                    try:
+                        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+                        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+                        
+                        if account_sid and auth_token:
+                            twilio_client = TwilioClient(account_sid, auth_token)
+                            
+                            # Same message format as SOS button
+                            emergency_message = "Emergency SOS Alert."
+                            if request.location:
+                                emergency_message += f" Location: {request.location}."
+                            if request.message:
+                                emergency_message += f" Message: {request.message}."
+                            
+                            call = twilio_client.calls.create(
+                                twiml=f'<Response><Say voice="alice">{emergency_message}</Say></Response>',
+                                to=emergency_number,
+                                from_=from_number
+                            )
+                            
+                            message = "Emergency SOS call has been triggered automatically. Help is on the way!"
+                            action_result = {
+                                "success": True,
+                                "call_sid": call.sid,
+                                "call_status": "Emergency call initiated"
+                            }
+                            sos_triggered = True
+                            action_executed = True
+                        else:
+                            message = "Emergency detected, but Twilio not configured"
+                            action_result = {"error": "Twilio credentials missing"}
+                    except Exception as e:
+                        message = f"Emergency detected, but call failed: {str(e)}"
+                        action_result = {"error": str(e)}
                 else:
-                    message = f"Emergency detected, but SOS call failed (HTTP {sos_response.status_code})"
-                    action_result = {"error": f"HTTP {sos_response.status_code}"}
+                    message = "Emergency detected, but phone number not configured"
+                    action_result = {"error": "Twilio phone number missing"}
+                
+                # Fallback to API call if direct Twilio fails
+                if not action_executed:
+                    sos_response = await client.post(
+                        f"{base_url}/api/safety/sos",
+                        json={
+                            "user_id": request.user_id,
+                            "location": request.location,
+                            "message": request.message
+                        }
+                    )
+                    if sos_response.status_code == 200:
+                        action_result = sos_response.json()
+                        sos_triggered = action_result.get("call_successful", False)
+                        message = "Emergency SOS call has been triggered automatically. Help is on the way!"
+                        action_executed = True
+                    else:
+                        message = f"Emergency detected, but SOS call failed (HTTP {sos_response.status_code})"
+                        action_result = {"error": f"HTTP {sos_response.status_code}"}
             
             elif intent in ["book_event", "register_event"]:
                 # Register for event

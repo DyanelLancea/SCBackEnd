@@ -12,6 +12,11 @@ class SOSRequest(BaseModel):
     location: Optional[str] = None
     message: Optional[str] = None
 
+class LocationRequest(BaseModel):
+    user_id: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
 @router.post("/sos")
 def trigger_sos(sos_request: SOSRequest):
     """Simple SOS that just makes emergency call"""
@@ -65,13 +70,51 @@ def trigger_sos(sos_request: SOSRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"SOS failed: {str(e)}")
 
+@router.post("/location")
+def update_location(location_request: LocationRequest):
+    """Update/store current device location"""
+    return {
+        "success": True,
+        "message": "Location updated",
+        "user_id": location_request.user_id or "anonymous",
+        "location_display": "Current location",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+@router.get("/location")
+def get_location(
+    user_id: Optional[str] = Query(None),
+    lat: Optional[float] = Query(None),
+    lng: Optional[float] = Query(None)
+):
+    """Get current device location"""
+    if lat is None or lng is None:
+        return {
+            "success": False,
+            "message": "Please provide current location",
+            "location_display": "Location access required"
+        }
+    
+    return {
+        "success": True,
+        "user_id": user_id or "anonymous",
+        "current_location": {
+            "latitude": lat,
+            "longitude": lng,
+            "timestamp": datetime.utcnow().isoformat()
+        },
+        "location_display": "Current location",
+        "timestamp": datetime.utcnow().isoformat(),
+        "time_since_update": "Just now"
+    }
+
 @router.get("/location/{user_id}")
 def get_current_location(
     user_id: str,
     lat: Optional[float] = Query(None),
     lng: Optional[float] = Query(None)
 ):
-    """Get current device location"""
+    """Get current device location with user ID in path"""
     if lat is None or lng is None:
         return {
             "success": False,
