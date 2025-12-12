@@ -5,6 +5,8 @@ from twilio.rest import Client
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from app.shared.supabase import get_supabase_client
+
 router = APIRouter()
 
 class SOSRequest(BaseModel):
