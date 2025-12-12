@@ -647,17 +647,17 @@ async def process_message(request: TextMessage):
                                 current_time = datetime.utcnow() + timedelta(hours=8)
                                 time_str = current_time.strftime("%B %d, %Y at %I:%M %p SGT")
                             
-                            # Get location address
+                            # Get location address - use FULL address for emergency calls
                             location_address = "Unknown location"
-                            if request.location:
-                                location_address = request.location
+                            coordinates_str = ""
                             
-                            # If we have coordinates, get better address and find MRT
                             if request.latitude and request.longitude:
-                                # Try to reverse geocode for better address
-                                geocoded_address = await reverse_geocode(request.latitude, request.longitude)
+                                # Reverse geocode from coordinates to get FULL address
+                                geocoded_address = await reverse_geocode(request.latitude, request.longitude, full_address=True)
                                 if geocoded_address:
                                     location_address = geocoded_address
+                                # Also include coordinates in the message
+                                coordinates_str = f"Coordinates: {request.latitude}, {request.longitude}"
                                 
                                 # Find nearest MRT station
                                 mrt_station = await find_nearest_mrt(request.latitude, request.longitude)
@@ -666,6 +666,10 @@ async def process_message(request: TextMessage):
                                 else:
                                     nearest_mrt = "Unknown MRT"
                             else:
+                                # Use location string if provided
+                                if request.location:
+                                    location_address = request.location
+                                
                                 # Try to extract MRT from location string if it mentions MRT
                                 nearest_mrt = "Unknown MRT"
                                 if request.location and "mrt" in request.location.lower():
@@ -673,6 +677,11 @@ async def process_message(request: TextMessage):
                                     mrt_match = re.search(r'([A-Za-z\s]+MRT)', request.location, re.IGNORECASE)
                                     if mrt_match:
                                         nearest_mrt = mrt_match.group(1).strip()
+                            
+                            # Combine location address and coordinates
+                            location_info = location_address
+                            if coordinates_str:
+                                location_info = f"{location_address}, {coordinates_str}"
                             
                             # Build message in required format
                             if request.message:
@@ -682,11 +691,11 @@ async def process_message(request: TextMessage):
                                     "timing" in request.message.lower()):
                                     emergency_message = request.message
                                 else:
-                                    # Build message with required format
-                                    emergency_message = f"the location is at {location_address}, the nearest mrt is {nearest_mrt} the timing of this is {time_str}"
+                                    # Build message with required format including full address and coordinates
+                                    emergency_message = f"the location is at {location_info}, the nearest mrt is {nearest_mrt} the timing of this is {time_str}"
                             else:
-                                # Build message in required format
-                                emergency_message = f"the location is at {location_address}, the nearest mrt is {nearest_mrt} the timing of this is {time_str}"
+                                # Build message in required format with full address and coordinates
+                                emergency_message = f"the location is at {location_info}, the nearest mrt is {nearest_mrt} the timing of this is {time_str}"
                             
                             call = twilio_client.calls.create(
                                 twiml=f'<Response><Say voice="alice">{emergency_message}</Say></Response>',

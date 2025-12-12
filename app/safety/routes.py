@@ -22,10 +22,18 @@ except ImportError:
 router = APIRouter()
 
 
-async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
+async def reverse_geocode(latitude: float, longitude: float, full_address: bool = False) -> Optional[str]:
     """
-    Convert coordinates to a clean, readable address using OpenStreetMap Nominatim API.
-    Returns a nice, short address like "Bukit Timah" or "Holland Road" instead of full address.
+    Convert coordinates to a readable address using OpenStreetMap Nominatim API.
+    
+    Args:
+        latitude: GPS latitude coordinate
+        longitude: GPS longitude coordinate
+        full_address: If True, returns full address with all details. If False, returns short address.
+    
+    Returns:
+        Full address string like "Seletar Link, Seletar, North-east Region, Singapore, 823322, Singapore"
+        or short address like "Seletar Link, Seletar" depending on full_address parameter
     """
     try:
         # Use OpenStreetMap Nominatim API (free, no API key required)
@@ -46,8 +54,14 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
             if response.status_code == 200:
                 data = response.json()
                 address = data.get("address", {})
+                display_name = data.get("display_name", "")
                 
-                # For Singapore addresses, build a clean, short format
+                # If full_address is True, return the complete display_name
+                # Example: "Seletar Link, Seletar, North-east Region, Singapore, 823322, Singapore"
+                if full_address and display_name:
+                    return display_name
+                
+                # For short address, build a clean format
                 # Priority order for a nice display:
                 # 1. Road name (e.g., "Holland Road")
                 # 2. Suburb/Neighbourhood (e.g., "Bukit Timah")
@@ -59,7 +73,7 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
                 city_district = address.get("city_district")
                 city = address.get("city")
                 
-                # Build a nice, short address
+                # Build address parts
                 location_parts = []
                 
                 # If we have a road name, use it (e.g., "Holland Road")
@@ -82,7 +96,6 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
                     return ", ".join(location_parts)
                 
                 # Fallback: try to extract from display_name
-                display_name = data.get("display_name", "")
                 if display_name:
                     # Split by comma and take first 2 parts (usually road and area)
                     parts = [p.strip() for p in display_name.split(",")]
@@ -331,21 +344,20 @@ async def trigger_sos(sos_request: SOSRequest):
         # Build the automated message for the phone call
         # Format: "the location is at xxx, the nearest mrt is xxxxx the timing of this is xxxx"
         
-        # Get location address
+        # Get location address - use FULL address for emergency calls
         location_address = "Unknown location"
-        if sos_request.location:
-            # Try to extract address from location string
-            location_address = sos_request.location
-            # If location contains coordinates, try to reverse geocode
-            if sos_request.latitude and sos_request.longitude:
-                geocoded_address = await reverse_geocode(sos_request.latitude, sos_request.longitude)
-                if geocoded_address:
-                    location_address = geocoded_address
-        elif sos_request.latitude and sos_request.longitude:
-            # Reverse geocode from coordinates
-            geocoded_address = await reverse_geocode(sos_request.latitude, sos_request.longitude)
+        coordinates_str = ""
+        
+        if sos_request.latitude and sos_request.longitude:
+            # Reverse geocode from coordinates to get FULL address
+            geocoded_address = await reverse_geocode(sos_request.latitude, sos_request.longitude, full_address=True)
             if geocoded_address:
                 location_address = geocoded_address
+            # Also include coordinates in the message
+            coordinates_str = f"Coordinates: {sos_request.latitude}, {sos_request.longitude}"
+        elif sos_request.location:
+            # Use location string if provided
+            location_address = sos_request.location
         
         # Find nearest MRT station
         nearest_mrt = "Unknown MRT"
@@ -365,11 +377,17 @@ async def trigger_sos(sos_request: SOSRequest):
                 "timing" in frontend_message.lower()):
                 emergency_message = frontend_message
             else:
-                # Frontend message doesn't have required format, build our own
-                emergency_message = f"the location is at {location_address}, the nearest mrt is {nearest_mrt} the timing of this is {time_str}"
+                # Frontend message doesn't have required format, build our own with full address and coordinates
+                location_info = location_address
+                if coordinates_str:
+                    location_info = f"{location_address}, {coordinates_str}"
+                emergency_message = f"the location is at {location_info}, the nearest mrt is {nearest_mrt} the timing of this is {time_str}"
         else:
-            # Build message in required format: "the location is at xxx, the nearest mrt is xxxxx the timing of this is xxxx"
-            emergency_message = f"the location is at {location_address}, the nearest mrt is {nearest_mrt} the timing of this is {time_str}"
+            # Build message in required format with full address and coordinates
+            location_info = location_address
+            if coordinates_str:
+                location_info = f"{location_address}, {coordinates_str}"
+            emergency_message = f"the location is at {location_info}, the nearest mrt is {nearest_mrt} the timing of this is {time_str}"
 
         # Make emergency call using Twilio
         # Get phone numbers from environment variables
