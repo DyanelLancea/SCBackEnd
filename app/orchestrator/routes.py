@@ -634,12 +634,11 @@ async def process_message(request: TextMessage):
                         if account_sid and auth_token:
                             twilio_client = TwilioClient(account_sid, auth_token)
                             
-                            # Same message format as SOS button
-                            emergency_message = "Emergency SOS Alert."
+                            # Same message format as SOS button - only speak location
                             if request.location:
-                                emergency_message += f" Location: {request.location}."
-                            if request.message:
-                                emergency_message += f" Message: {request.message}."
+                                emergency_message = f"Emergency SOS Alert. Location: {request.location}."
+                            else:
+                                emergency_message = "Emergency SOS Alert. Location not available."
                             
                             call = twilio_client.calls.create(
                                 twiml=f'<Response><Say voice="alice">{emergency_message}</Say></Response>',
