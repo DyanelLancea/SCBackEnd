@@ -623,14 +623,10 @@ async def process_message(request: TextMessage):
                             twilio_client = TwilioClient(account_sid, auth_token)
                             
                             # Get user's current address for the call
-                            user_address = "Location not available"
                             if request.location:
-                                user_address = request.location
+                                emergency_message = f"Emergency SOS Alert. Address: {request.location}."
                             else:
-                                # Try to get user's current location from frontend or use generic
-                                user_address = "Current location"
-                            
-                            emergency_message = f"Emergency SOS Alert. Address: {user_address}."
+                                emergency_message = "Emergency SOS Alert. Please check current location."
                             
                             call = twilio_client.calls.create(
                                 twiml=f'<Response><Say voice="alice">{emergency_message}</Say></Response>',
