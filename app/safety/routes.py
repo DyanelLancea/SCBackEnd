@@ -119,8 +119,12 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[str]:
 # Request Models
 class SOSRequest(BaseModel):
     user_id: str
-    location: Optional[str] = None
-    message: Optional[str] = None
+    alert_type: Optional[str] = None  # Type of alert, typically "sos"
+    latitude: Optional[float] = None  # GPS latitude coordinate
+    longitude: Optional[float] = None  # GPS longitude coordinate
+    location: Optional[str] = None  # Formatted location string with coordinates
+    message: Optional[str] = None  # Complete emergency message (ready-to-speak)
+    text: Optional[str] = None  # Same as message - included for Twilio compatibility
 
 
 class LocationRequest(BaseModel):
@@ -225,17 +229,20 @@ async def trigger_sos(sos_request: SOSRequest):
             location_info = "Unknown location"
 
         # Build the automated message for the phone call
-        message_parts = [
-            "Emergency SOS Alert.",
-            f"Alert triggered on {time_str}.",
-            f"Location: {location_info}.",
-        ]
-        
-        if sos_request.message:
-            message_parts.append(f"User message: {sos_request.message}.")
-        
-        message_parts.append("This requires immediate attention. Please respond as soon as possible.")
-        emergency_message = " ".join(message_parts)
+        # Priority: Use frontend's ready-to-use message, fallback to building our own
+        if sos_request.message or sos_request.text:
+            # Frontend provides a complete, ready-to-speak message
+            # Use it directly - it's already formatted with location details, MRT station, and coordinates
+            emergency_message = sos_request.message or sos_request.text
+        else:
+            # Fallback: Build message if frontend doesn't provide one
+            message_parts = [
+                "Emergency SOS Alert.",
+                f"Alert triggered on {time_str}.",
+                f"Location: {location_info}.",
+            ]
+            message_parts.append("This requires immediate attention. Please respond as soon as possible.")
+            emergency_message = " ".join(message_parts)
 
         # Make emergency call using Twilio
         # Get phone numbers from environment variables
